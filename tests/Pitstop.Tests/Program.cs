@@ -22,7 +22,24 @@ var tests = new (string Name, Func<Task> Run)[]
     ("A self-restarted background app is not launched twice", BackgroundRestart),
     ("Force-close consent is copied into the session snapshot", ForceSnapshot),
     ("An interrupted launch is recovered using path and creation time", InterruptedLaunch),
-    ("Path comparisons are exact, case-insensitive, and separator-normalized", ExactPaths)
+    ("Path comparisons are exact, case-insensitive, and separator-normalized", ExactPaths),
+    ("Tray apps are terminated when a window close only hides them", TrayExit),
+    ("Windowless background apps are terminated without waiting for a window", BackgroundExit),
+    ("Graceful-only mode never terminates a refusing app", GracefulOnly),
+    ("A normal graceful exit never needs termination", NormalExit),
+    ("An exited process receives no close requests", ExitedProcess),
+    ("Termination is not reported successful if the process remains alive", FailedTermination),
+    ("A denied termination cannot be mistaken for a successful exit", DeniedTermination),
+    ("Old profiles adopt complete exit while explicit graceful-only settings persist", CloseModeMigration),
+    ("Complete exit is used for background apps in both session directions", DefaultCompleteExit),
+    ("Bundled helpers with different executables exit with their app", BundledHelpers),
+    ("Unrelated children outside the installation folder stay open", ExternalChildren),
+    ("Immediate helpers survive a bootstrapper exit and are still cleaned up", BootstrapperExit),
+    ("Reused parent PIDs do not claim later unrelated children", ReusedParent),
+    ("Delayed launcher processes are recovered when ending a session", LateLaunch),
+    ("An unidentified launch requires manual confirmation, not false success", UnknownLaunch),
+    ("A failed launch never claims a later manually opened app", FailedLaunchManualApp),
+    ("A process that survives an apparent close keeps the restore record", FalseCloseSuccess)
 };
 int failures = 0;
 foreach (var (name, run) in tests)
@@ -203,6 +220,111 @@ static Task ExactPaths()
     return Task.CompletedTask;
 }
 
+static async Task TrayExit()
+{
+    var app = new FakeLifetime { HasWindow = true };
+    var result = await ProcessExit.CloseAsync(app, true);
+    Check(result.Closed && !app.IsRunning && app.Terminations == 1 && app.CloseRequests == 1, "Tray process was left alive");
+}
+static async Task BackgroundExit()
+{
+    var app = new FakeLifetime(); var result = await ProcessExit.CloseAsync(app, true);
+    Check(result.Closed && app.Terminations == 1 && app.Waits == 1, "Background process did not exit immediately");
+}
+static async Task GracefulOnly()
+{
+    var app = new FakeLifetime { HasWindow = true }; var result = await ProcessExit.CloseAsync(app, false);
+    Check(!result.Closed && app.IsRunning && app.Terminations == 0, "Graceful-only mode terminated an app");
+}
+static async Task NormalExit()
+{
+    var app = new FakeLifetime { HasWindow = true, ExitsGracefully = true }; var result = await ProcessExit.CloseAsync(app, true);
+    Check(result.Closed && app.Terminations == 0, "A normal exit was forced");
+}
+static async Task ExitedProcess()
+{
+    var app = new FakeLifetime { IsRunning = false }; var result = await ProcessExit.CloseAsync(app, true);
+    Check(result.Closed && app.CloseRequests == 0 && app.Terminations == 0, "Exited process was touched");
+}
+static async Task FailedTermination()
+{
+    var app = new FakeLifetime { RefusesTermination = true }; var result = await ProcessExit.CloseAsync(app, true);
+    Check(!result.Closed && app.IsRunning, "A live process was reported closed");
+}
+static async Task DeniedTermination()
+{
+    var app = new FakeLifetime { DenyTermination = true };
+    await Throws(async () => await ProcessExit.CloseAsync(app, true));
+    Check(app.IsRunning, "Denied app changed state");
+}
+static Task CloseModeMigration()
+{
+    var old = JsonSerializer.Deserialize<AppRule>("{\"Name\":\"Trading Paints\",\"ForceClose\":false}", FileStore.Json)!;
+    Check(old.ForceClose && old.IncludeChildProcesses, "Old default still leaves tray apps alive");
+    old.CloseMode = AppCloseMode.GracefulOnly;
+    var saved = JsonSerializer.Deserialize<AppRule>(JsonSerializer.Serialize(old, FileStore.Json), FileStore.Json)!;
+    Check(!saved.ForceClose && saved.CloseMode == AppCloseMode.GracefulOnly, "Explicit graceful-only choice did not persist");
+    return Task.CompletedTask;
+}
+static async Task DefaultCompleteExit()
+{
+    var (engine, host, _) = Setup(); var game = Rule("iRacingUI"); var plex = Rule("Plex"); host.Add(plex);
+    var profile = Profile(game); profile.CloseApps = [plex]; await engine.StartAsync(profile); await engine.EndAsync();
+    Check(host.CloseFlags.Count == 2 && host.CloseFlags.All(f => f), "Some default closes only requested a window close");
+}
+static async Task BundledHelpers()
+{
+    var (engine, host, _) = Setup(); var app = Rule("iRacingUI"); await engine.StartAsync(Profile(app));
+    var root = host.Running.Single(); var helper = host.Add(Rule("resources\\Helper")); helper.ParentPid = root.Pid;
+    await engine.EndAsync(); Check(host.Running.Count == 0, "Different-executable helper was left running");
+}
+static async Task ExternalChildren()
+{
+    var (engine, host, _) = Setup(); var app = Rule("iRacingUI"); await engine.StartAsync(Profile(app));
+    var root = host.Running.Single(); var rule = Rule("Browser"); rule.ProcessPath = @"C:\Browser\browser.exe";
+    var browser = host.Add(rule); browser.ParentPid = root.Pid;
+    await engine.EndAsync(); Check(host.Running.Single().Identity == browser.Identity, "External browser was adopted as a bundled helper");
+}
+static async Task BootstrapperExit()
+{
+    var (engine, host, _) = Setup(); var app = Rule("Bootstrap"); await engine.StartAsync(Profile(app));
+    var root = host.Running.Single(); host.Running.Clear(); var child = host.Add(Rule("resources\\Worker")); child.ParentPid = root.Pid;
+    await engine.EndAsync(); Check(host.Running.Count == 0, "Orphaned bootstrapper helper was missed");
+}
+static async Task ReusedParent()
+{
+    var (engine, host, _) = Setup(); var app = Rule("App"); await engine.StartAsync(Profile(app));
+    var root = host.Running.Single(); host.Running.Clear(); var replacement = host.Add(app); replacement.Pid = root.Pid;
+    replacement.StartedUtcTicks = root.StartedUtcTicks + 1000;
+    var child = host.Add(Rule("Helper")); child.ParentPid = root.Pid; child.StartedUtcTicks = replacement.StartedUtcTicks + 1000;
+    await engine.EndAsync(); Check(host.Running.Count == 2, "Reused parent PID claimed another process family");
+}
+static async Task LateLaunch()
+{
+    var (engine, host, _) = Setup(); host.SkipLaunchDetection = true; var app = Rule("SlowLauncher");
+    await engine.StartAsync(Profile(app)); engine.Current!.Launched.Single().RequestedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+    host.Add(app); await engine.EndAsync();
+    Check(host.Running.Count == 0 && engine.Current is null, "Delayed launcher was silently missed");
+}
+static async Task UnknownLaunch()
+{
+    var (engine, host, store) = Setup(); host.SkipLaunchDetection = true; await engine.StartAsync(Profile(Rule("Unknown")));
+    await engine.EndAsync(); Check(engine.Current?.Status == "Needs attention", "Unidentified app was falsely reported closed");
+    await engine.ConfirmUntrackedAppsClosedAsync(); Check(engine.Current is null && store.Completed.Count == 1, "Manual resolution did not finish restore");
+}
+static async Task FailedLaunchManualApp()
+{
+    var (engine, host, _) = Setup(); var app = Rule("App"); host.DenyLaunch.Add(app.ProcessPath);
+    await engine.StartAsync(Profile(app)); var manual = host.Add(app); await engine.EndAsync();
+    Check(host.Running.Single().Identity == manual.Identity, "Failed launch adopted an unrelated manual instance");
+}
+static async Task FalseCloseSuccess()
+{
+    var (engine, host, _) = Setup(); var app = Rule("Tray"); await engine.StartAsync(Profile(app));
+    host.FalseCloseSuccess = true; await engine.EndAsync();
+    Check(engine.Current?.Status == "Needs attention" && host.Running.Count == 1, "A surviving process was reported closed");
+}
+
 sealed class MemoryStore : ISessionStore
 {
     public SessionState? Active;
@@ -214,6 +336,8 @@ sealed class MemoryStore : ISessionStore
 }
 sealed class FakeHost : IProcessHost
 {
+    public bool SkipLaunchDetection;
+    public bool FalseCloseSuccess;
     public List<ProcessSnapshot> Running = [];
     public List<AppRule> Starts = [];
     public List<ProcessSnapshot> Closes = [];
@@ -236,13 +360,33 @@ sealed class FakeHost : IProcessHost
     {
         BeforeLaunch?.Invoke(rule);
         if (DenyLaunch.Contains(rule.ProcessPath)) throw new InvalidOperationException("Launch denied");
+        if (SkipLaunchDetection) return Task.FromResult(new LaunchResult(null));
         Starts.Add(rule); return Task.FromResult(new LaunchResult(Add(rule, rule.Arguments)));
     }
     public Task<CloseResult> CloseAsync(ProcessSnapshot process, bool force)
     {
         BeforeClose?.Invoke(process); Closes.Add(process); CloseFlags.Add(force);
         if (DenyClose.Contains(process.ExecutablePath)) return Task.FromResult(new CloseResult(false, "Denied by fake host"));
-        Running.RemoveAll(p => p.Identity == process.Identity); return Task.FromResult(new CloseResult(true, "Closed"));
+        if (!FalseCloseSuccess) Running.RemoveAll(p => p.Identity == process.Identity);
+        return Task.FromResult(new CloseResult(true, "Closed"));
     }
     public Task WaitAsync(TimeSpan delay) => Task.CompletedTask;
+}
+sealed class FakeLifetime : IProcessLifetime
+{
+    public bool IsRunning { get; set; } = true;
+    public bool HasWindow, ExitsGracefully, RefusesTermination, DenyTermination;
+    public int CloseRequests, Terminations, Waits;
+    public bool RequestWindowClose() { CloseRequests++; return HasWindow; }
+    public Task<bool> WaitForExitAsync(TimeSpan timeout)
+    {
+        Waits++;
+        if (ExitsGracefully || (Terminations > 0 && !RefusesTermination)) IsRunning = false;
+        return Task.FromResult(!IsRunning);
+    }
+    public void Terminate()
+    {
+        if (DenyTermination) throw new InvalidOperationException("Windows denied access");
+        Terminations++;
+    }
 }

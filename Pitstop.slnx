@@ -2,4 +2,6 @@
  <Project Path="src/Pitstop.Core/Pitstop.Core.csproj"/>
  <Project Path="src/Pitstop.Windows/Pitstop.Windows.csproj"/>
  <Project Path="tests/Pitstop.Tests/Pitstop.Tests.csproj"/>
+ <Project Path="tests/Pitstop.TestWorker/Pitstop.TestWorker.csproj"/>
+ <Project Path="tests/Pitstop.WindowsSmoke/Pitstop.WindowsSmoke.csproj"/>
 </Solution>

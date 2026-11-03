@@ -88,13 +88,27 @@ public partial class MainWindow : Window
     {
         var session = engine.Current;
         var idle = !busy && session is null;
+        if (Selected is { } selected)
+        {
+            foreach (var rule in selected.OpenApps)
+            {
+                var launched = session?.ProfileId == selected.Id ? session.Launched.FirstOrDefault(a => a.Rule.Id == rule.Id) : null;
+                rule.SessionRole = launched is null ? "" : launched.WasAlreadyRunning ? "Already open — stays open on restore"
+                    : launched.LaunchFailed ? "Launch failed — see activity" : launched.Tracked.Count == 0 ? "Process not detected — see activity" : "Opened for this session";
+            }
+        }
         StartButton.IsEnabled = idle && Selected is not null;
         AppLists.IsEnabled = idle && Selected is not null;
         EditProfileButton.IsEnabled = DuplicateButton.IsEnabled = DeleteProfileButton.IsEnabled = idle && Selected is not null;
         TopNewButton.IsEnabled = NewProfileButton.IsEnabled = idle;
+        DragReorder.SetEnabled(ProfilesList, idle);
         EndButton.IsEnabled = !busy && session is not null;
         SessionBanner.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
         BusyBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmUntrackedButton.Visibility = session?.Status == "Needs attention" && session.Launched.Any(a =>
+            a.LaunchAttempted && !a.WasAlreadyRunning && !a.CloseFinished && a.Tracked.Count == 0)
+            ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmUntrackedButton.IsEnabled = !busy;
         if (session is not null)
         {
             var warning = session.Status == "Needs attention" || session.Activity.LastOrDefault()?.Level is "Warning" or "Error";
@@ -112,6 +126,11 @@ public partial class MainWindow : Window
     {
         store.SaveProfiles(profiles);
         RefreshProfiles();
+    }
+    private void List_Reordered(object sender, RoutedEventArgs e)
+    {
+        SaveProfiles();
+        StatusText.Text = "New order saved.";
     }
     private void NewProfile_Click(object sender, RoutedEventArgs e)
     {
@@ -182,6 +201,16 @@ public partial class MainWindow : Window
         finally { busy = false; RefreshSession(); }
     }
     private async void EndSession_Click(object sender, RoutedEventArgs e) => await EndSessionAsync();
+    private async void ConfirmUntracked_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || engine.Current is null) return;
+        if (MessageBox.Show(this, "Confirm that you have exited any apps marked as unidentified in this session. Pitstop will then finish restoring your previous apps.",
+            "Finish manual cleanup", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        busy = true; RefreshSession();
+        try { await engine.ConfirmUntrackedAppsClosedAsync(); history = store.ReadHistory(); }
+        catch (Exception ex) { Ui.Error(this, ex); }
+        finally { busy = false; RefreshSession(); }
+    }
     private async Task EndSessionAsync()
     {
         if (busy || engine.Current is null) return;

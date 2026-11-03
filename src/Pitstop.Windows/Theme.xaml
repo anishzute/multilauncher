@@ -1,4 +1,11 @@
-<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Pitstop.Windows">
+  <local:AppIconConverter x:Key="AppIcon"/>
+  <DataTemplate x:Key="RunningAppRow">
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Image Source="{Binding Process.ExecutablePath, Converter={StaticResource AppIcon}}" Width="28" Height="28"/>
+      <StackPanel Grid.Column="1" Margin="8,0,0,0"><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><TextBlock Text="{Binding Detail}" Foreground="{DynamicResource Muted}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/></StackPanel>
+    </Grid>
+  </DataTemplate>
   <SolidColorBrush x:Key="Background" Color="#141518"/>
   <SolidColorBrush x:Key="Surface" Color="#1C1D21"/>
   <SolidColorBrush x:Key="Line" Color="#303136"/>

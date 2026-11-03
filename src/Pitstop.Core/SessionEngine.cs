@@ -53,10 +53,11 @@ public sealed class SessionEngine
 
             foreach (var rule in closes)
             {
-                var matches = before.Where(p => Paths.Equal(p.ExecutablePath, rule.ProcessPath)).ToList();
-                if (matches.Count == 0) { Log("Info", $"{rule.Name}: not running; nothing to restore later."); continue; }
-                var primary = matches.OrderByDescending(p => p.HasWindow)
-                    .ThenBy(p => matches.Any(other => other.Pid == p.ParentPid)).First();
+                var roots = before.Where(p => Paths.Equal(p.ExecutablePath, rule.ProcessPath)).ToList();
+                if (roots.Count == 0) { Log("Info", $"{rule.Name}: no process matches {rule.ProcessPath}. Nothing was closed. If the app is running, use Pick a running app to correct its process path."); continue; }
+                var matches = ProcessFamily.Find(rule, roots, before);
+                var primary = roots.OrderByDescending(p => p.HasWindow)
+                    .ThenBy(p => roots.Any(other => other.Pid == p.ParentPid)).First();
                 var restart = Clone(rule);
                 // A shortcut can carry its own arguments. Preserve that restart route.
                 if (Paths.Equal(rule.LaunchTarget, primary.ExecutablePath) && primary.Arguments is not null)
@@ -64,17 +65,20 @@ public sealed class SessionEngine
                 var stopped = new StoppedApp { Rule = rule, Restart = restart, OriginalProcesses = matches, CloseAttempted = true };
                 Current.Stopped.Add(stopped);
                 Save(); // Write intent before requesting any process to exit.
-                var failed = false;
-                foreach (var process in matches.OrderByDescending(p => p.HasWindow))
+                var verified = await CloseGroupAsync(rule, matches);
+                var afterClose = await host.CaptureAsync();
+                var survivors = ProcessFamily.Find(rule, matches, afterClose);
+                // A program can spawn a helper while handling its window close.
+                var newHelpers = survivors.Where(p => !matches.Any(m => m.Identity == p.Identity)).ToList();
+                if (newHelpers.Count > 0)
                 {
-                    try
-                    {
-                        var result = await host.CloseAsync(process, rule.ForceClose);
-                        if (!result.Closed) { failed = true; Log("Warning", $"{rule.Name}: {result.Message}"); }
-                    }
-                    catch (Exception ex) { failed = true; Log("Warning", $"{rule.Name}: {ex.Message}"); }
+                    stopped.OriginalProcesses.AddRange(newHelpers); Save();
+                    verified &= await CloseGroupAsync(rule, newHelpers);
+                    afterClose = await host.CaptureAsync();
+                    survivors = ProcessFamily.Find(rule, stopped.OriginalProcesses, afterClose);
                 }
-                if (!failed) Log("Success", $"Closed {rule.Name}. It will be reopened when you end the session.");
+                if (survivors.Count == 0 && verified) Log("Success", $"Exited {rule.Name} and its selected helpers. It will be reopened when you end the session.");
+                else Log("Warning", $"{rule.Name}: complete exit could not be verified. Check the exit result in Session activity.");
             }
 
             foreach (var rule in opens)
@@ -91,9 +95,11 @@ public sealed class SessionEngine
                 }
                 launch.LaunchAttempted = true;
                 Save();
+                var launchReturned = false;
                 try
                 {
                     var result = await host.LaunchAsync(rule);
+                    launchReturned = true;
                     if (result.Process is { } root && Paths.Equal(root.ExecutablePath, rule.ProcessPath) && !IsBaseline(root))
                         launch.Tracked.Add(root);
                     Save();
@@ -105,6 +111,7 @@ public sealed class SessionEngine
                 }
                 catch (Exception ex)
                 {
+                    launch.LaunchFailed = !launchReturned;
                     launch.TrackingFinished = true;
                     Log("Error", $"Could not open {rule.Name}: {ex.Message}");
                 }
@@ -136,30 +143,36 @@ public sealed class SessionEngine
             {
                 if (launched.WasAlreadyRunning || !launched.LaunchAttempted || launched.CloseFinished) continue;
                 var running = await host.CaptureAsync();
-                if (!launched.TrackingFinished)
+                if (!launched.TrackingFinished || (launched.Tracked.Count == 0 && !launched.LaunchFailed))
                 {
                     // Recovery of a launch interrupted before its PID was written.
-                    foreach (var p in running.Where(p => IsLaunchCandidate(p, launched))) AddTracked(launched, p);
+                    foreach (var p in running.Where(p => !IsBaseline(p) && Paths.Equal(p.ExecutablePath, launched.Rule.ProcessPath)
+                        && p.StartedUtcTicks >= launched.RequestedAt.UtcTicks)) AddTracked(launched, p);
                     launched.TrackingFinished = true;
                     Save();
                 }
                 var owned = FindOwned(launched, running);
                 launched.Tracked = launched.Tracked.Concat(owned).DistinctBy(p => p.Identity).ToList();
                 Save();
-                foreach (var process in owned.OrderByDescending(p => p.HasWindow))
-                {
-                    try
-                    {
-                        var result = await host.CloseAsync(process, launched.Rule.ForceClose);
-                        if (!result.Closed) Log("Warning", $"{launched.Rule.Name}: {result.Message}");
-                    }
-                    catch (Exception ex) { Log("Warning", $"{launched.Rule.Name}: {ex.Message}"); }
-                }
+                var attempts = launched.Tracked.Where(p => !running.Any(current => current.Pid == p.Pid && current.Identity != p.Identity)).ToList();
+                var verified = await CloseGroupAsync(launched.Rule, attempts);
                 var after = await host.CaptureAsync();
-                launched.CloseFinished = !FindOwned(launched, after).Any();
+                var survivors = FindOwned(launched, after);
+                var newHelpers = survivors.Where(p => !launched.Tracked.Any(t => t.Identity == p.Identity)).ToList();
+                if (newHelpers.Count > 0)
+                {
+                    launched.Tracked.AddRange(newHelpers); Save();
+                    verified &= await CloseGroupAsync(launched.Rule, newHelpers);
+                    after = await host.CaptureAsync();
+                    survivors = FindOwned(launched, after);
+                }
+                // An undetected launch is not proof of successful closure.
+                var untracked = launched.Tracked.Count == 0 && !launched.LaunchFailed;
+                launched.CloseFinished = survivors.Count == 0 && !untracked && verified;
                 Log(launched.CloseFinished ? "Success" : "Warning", launched.CloseFinished
                     ? $"{launched.Rule.Name}: session processes closed."
-                    : $"{launched.Rule.Name} is still open. Save your work or exit it, then retry restore.");
+                    : untracked ? $"{launched.Rule.Name}: the launched process could not be identified. Check its process path and exit it manually if needed."
+                    : $"{launched.Rule.Name}: {survivors.Count} process(es) are still running. Check permissions or exit it manually, then retry restore.");
             }
 
             foreach (var stopped in Current.Stopped)
@@ -230,19 +243,32 @@ public sealed class SessionEngine
     }
     private List<ProcessSnapshot> FindOwned(LaunchedApp app, IReadOnlyList<ProcessSnapshot> running)
     {
-        var owned = running.Where(p => !IsBaseline(p) && app.Tracked.Any(t => t.Identity == p.Identity)
-            && Paths.Equal(p.ExecutablePath, app.Rule.ProcessPath)).ToList();
-        // Follow this app's children, but never adopt another independently opened instance.
-        bool added;
-        do
+        return ProcessFamily.Find(app.Rule, app.Tracked, running, Current!.Baseline);
+    }
+    public async Task ConfirmUntrackedAppsClosedAsync()
+    {
+        if (!await gate.WaitAsync(0)) throw new InvalidOperationException("A session operation is already in progress.");
+        try
         {
-            added = false;
-            foreach (var p in running.Where(p => !IsBaseline(p) && Paths.Equal(p.ExecutablePath, app.Rule.ProcessPath)))
-                if (!owned.Any(o => o.Identity == p.Identity)
-                    && owned.Any(o => o.Pid == p.ParentPid && p.StartedUtcTicks >= o.StartedUtcTicks))
-                { owned.Add(p); added = true; }
-        } while (added);
-        return owned;
+            if (Current is null) return;
+            foreach (var app in Current.Launched.Where(a => a.LaunchAttempted && !a.WasAlreadyRunning && a.Tracked.Count == 0))
+                app.CloseFinished = true;
+            Log("Info", "User confirmed that the unidentified apps have been exited manually.");
+        }
+        finally { gate.Release(); }
+        await EndAsync();
+    }
+    private async Task<bool> CloseGroupAsync(AppRule rule, IReadOnlyList<ProcessSnapshot> processes)
+    {
+        async Task<(ProcessSnapshot Process, CloseResult Result)> Close(ProcessSnapshot p)
+        {
+            try { return (p, await host.CloseAsync(p, rule.ForceClose)); }
+            catch (Exception ex) { return (p, new(false, ex.Message)); }
+        }
+        var results = await Task.WhenAll(processes.Select(Close));
+        foreach (var (p, result) in results)
+            Log(result.Closed ? "Info" : "Warning", $"{rule.Name} · PID {p.Pid}: {result.Message}");
+        return results.All(r => r.Result.Closed);
     }
     private static AppRule Clone(AppRule app) => JsonSerializer.Deserialize<AppRule>(JsonSerializer.Serialize(app, FileStore.Json), FileStore.Json)!;
     private void Save() { if (Current is not null) store.SaveActive(Current); Changed?.Invoke(); }

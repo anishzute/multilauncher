@@ -39,16 +39,13 @@ public sealed class WindowsProcessHost : IProcessHost
                 try
                 {
                     var pid = Convert.ToInt32(item["ProcessId"]);
-                    using var process = Process.GetProcessById(pid);
-                    var path = item["ExecutablePath"] as string;
-                    if (string.IsNullOrWhiteSpace(path)) path = process.MainModule?.FileName;
-                    if (string.IsNullOrWhiteSpace(path)) continue;
+                    var info = NativeProcess.Inspect(pid);
                     result.Add(new ProcessSnapshot
                     {
-                        Pid = pid, ParentPid = Convert.ToInt32(item["ParentProcessId"]), ExecutablePath = path,
-                        StartedUtcTicks = process.StartTime.ToUniversalTime().Ticks,
+                        Pid = pid, ParentPid = Convert.ToInt32(item["ParentProcessId"]), ExecutablePath = info.Path,
+                        StartedUtcTicks = info.Ticks,
                         Arguments = ExtractArguments(item["CommandLine"] as string),
-                        HasWindow = process.MainWindowHandle != IntPtr.Zero
+                        HasWindow = NativeProcess.HasWindow(pid)
                     });
                 }
                 catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception or ManagementException or NotSupportedException)
@@ -69,6 +66,7 @@ public sealed class WindowsProcessHost : IProcessHost
             throw new InvalidOperationException($"{rule.Name}: choose the full path to its process .exe.");
         if (IsProtected(path)) throw new InvalidOperationException($"{rule.Name}: Windows components and Pitstop itself cannot be managed.");
         if (!File.Exists(path)) throw new FileNotFoundException($"{rule.Name}: process executable not found. Edit this app and choose its location.", path);
+        rule.ProcessPath = Path.GetFullPath(path);
         if (!forLaunch) return;
         var target = Expand(rule.LaunchTarget);
         if (!IsSteamTarget(target) && !IsAppsFolderTarget(target))
@@ -79,6 +77,7 @@ public sealed class WindowsProcessHost : IProcessHost
                 throw new InvalidOperationException($"{rule.Name}: use an .exe, .lnk, Steam launch link, or AppsFolder target.");
             if (target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && IsProtected(target))
                 throw new InvalidOperationException($"{rule.Name}: a Windows component cannot be used as a launch target.");
+            rule.LaunchTarget = Path.GetFullPath(target);
         }
         if (!string.IsNullOrWhiteSpace(rule.WorkingDirectory) && !Directory.Exists(Expand(rule.WorkingDirectory)))
             throw new DirectoryNotFoundException($"{rule.Name}: working directory not found.");
@@ -100,10 +99,10 @@ public sealed class WindowsProcessHost : IProcessHost
         if (process is null) return new LaunchResult(null);
         try
         {
+            var info = NativeProcess.Inspect(process.Id);
             return new LaunchResult(new ProcessSnapshot
             {
-                Pid = process.Id, StartedUtcTicks = process.StartTime.ToUniversalTime().Ticks,
-                ExecutablePath = process.MainModule?.FileName ?? ""
+                Pid = process.Id, StartedUtcTicks = info.Ticks, ExecutablePath = info.Path
             });
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
@@ -113,37 +112,16 @@ public sealed class WindowsProcessHost : IProcessHost
     public async Task<CloseResult> CloseAsync(ProcessSnapshot snapshot, bool force)
     {
         if (IsProtected(snapshot.ExecutablePath)) return new(false, "protected process; left running.");
-        Process process;
-        try { process = Process.GetProcessById(snapshot.Pid); }
-        catch (ArgumentException) { return new(true, "already exited."); }
-        using (process)
+        try
         {
-            try
-            {
-                // PID alone is unsafe: Windows can reuse it after a process exits.
-                if (process.StartTime.ToUniversalTime().Ticks != snapshot.StartedUtcTicks || process.SessionId != sessionId)
-                    return new(true, "original process exited; replacement left running.");
-                if (!Paths.Equal(process.MainModule?.FileName ?? "", snapshot.ExecutablePath))
-                    return new(false, "executable identity could not be verified; left running.");
-                if (process.CloseMainWindow())
-                {
-                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(force ? 4 : 8));
-                    try { await process.WaitForExitAsync(timeout.Token); return new(true, "closed."); }
-                    catch (OperationCanceledException) { }
-                }
-                if (process.HasExited) return new(true, "closed.");
-                if (!force) return new(false, "still running. Exit it manually or enable Force close in this app’s settings for future sessions.");
-                // Deliberately never use Kill(entireProcessTree: true) or taskkill /IM.
-                if (process.StartTime.ToUniversalTime().Ticks != snapshot.StartedUtcTicks)
-                    return new(true, "original process exited.");
-                process.Kill(entireProcessTree: false);
-                using var killTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                try { await process.WaitForExitAsync(killTimeout.Token); return new(true, "force closed."); }
-                catch (OperationCanceledException) { return new(false, "did not exit after the close request."); }
-            }
-            catch (InvalidOperationException) { return new(true, "already exited."); }
-            catch (Win32Exception) { return new(false, "Windows denied access. The app may be elevated; left running."); }
+            using var process = NativeProcess.Open(snapshot, sessionId);
+            if (process is null) return new(true, "original process exited; any replacement was left running.");
+            return await ProcessExit.CloseAsync(process, force);
         }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 5)
+        { return new(false, $"Windows denied access to PID {snapshot.Pid}. If this app runs as administrator, restart Pitstop as administrator and retry restore. Services in another Windows session are not managed."); }
+        catch (Win32Exception ex) { return new(false, $"Windows error {ex.NativeErrorCode}: {ex.Message}"); }
+        catch (InvalidOperationException ex) { return new(false, ex.Message); }
     }
 
     public Task WaitAsync(TimeSpan delay) => Task.Delay(delay);

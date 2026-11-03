@@ -122,9 +122,12 @@ public sealed class AppDialog : Window
         Ui.Field(form, "Launch arguments  ·  optional", arguments);
         Ui.Field(form, "Working folder  ·  optional", working);
         var enabled = new CheckBox { Content = "Include this app in the profile", IsChecked = source?.Configured == true ? source.Enabled : true, Margin = new Thickness(0, 4, 0, 15) };
-        var force = new CheckBox { Content = closeList ? "Force close if graceful exit does not work" : "Force close this app when ending the session", IsChecked = Result.ForceClose };
-        form.Children.Add(enabled); form.Children.Add(force);
-        form.Children.Add(new TextBlock { Text = "Force close can lose unsaved work. Background apps without a window often need it. It applies only to this executable, in your Windows session.", Foreground = Ui.Muted, TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(38, 8, 0, 16) });
+        form.Children.Add(enabled);
+        var closeMode = new ComboBox { ItemsSource = new[] { "Exit completely (recommended)", "Graceful only — leave running if it refuses" }, SelectedIndex = Result.ForceClose ? 0 : 1, Margin = new Thickness(0, 6, 0, 10) };
+        Ui.Field(form, "Close behavior", closeMode);
+        var children = new CheckBox { Content = "Also exit this app’s bundled helper processes", IsChecked = Result.IncludeChildProcesses, Margin = new Thickness(0, 0, 0, 10) };
+        form.Children.Add(children);
+        form.Children.Add(new TextBlock { Text = "Exit completely tries a normal exit, then terminates the selected app if it stays in the tray or background. Save any work first. Helpers must belong to this app’s process family and installation folder.", Foreground = Ui.Muted, TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 0, 0, 16) });
         var delay = Ui.Input(Result.DelaySeconds.ToString()); delay.Width = 80; delay.HorizontalAlignment = HorizontalAlignment.Left;
         if (!closeList) Ui.Field(form, "Wait after launching  ·  seconds, 0–60", delay);
         var footer = new Grid { Margin = new Thickness(0, 18, 0, 0) };
@@ -147,7 +150,8 @@ public sealed class AppDialog : Window
                 if (!int.TryParse(delay.Text, out var seconds) || seconds is < 0 or > 60) throw new InvalidOperationException("Choose a delay from 0 to 60 seconds.");
                 Result.Name = name.Text.Trim(); Result.LaunchTarget = WindowsProcessHost.Expand(target.Text); Result.ProcessPath = WindowsProcessHost.Expand(processPath.Text);
                 Result.Arguments = arguments.Text; Result.WorkingDirectory = working.Text.Trim().Trim('"');
-                Result.Enabled = enabled.IsChecked == true; Result.ForceClose = force.IsChecked == true; Result.DelaySeconds = seconds;
+                Result.Enabled = enabled.IsChecked == true; Result.ForceClose = closeMode.SelectedIndex == 0;
+                Result.IncludeChildProcesses = children.IsChecked == true; Result.DelaySeconds = seconds;
                 host.Validate(Result, true);
                 DialogResult = true;
             }
@@ -212,6 +216,8 @@ public sealed class ProcessPicker : Window
     public ProcessSnapshot? Selected { get; private set; }
     private sealed record Choice(ProcessSnapshot Process)
     {
+        public string Name => Path.GetFileNameWithoutExtension(Process.ExecutablePath);
+        public string Detail => Process.ExecutablePath;
         public override string ToString() => $"{Path.GetFileName(Process.ExecutablePath)}\n{Process.ExecutablePath}";
     }
     public ProcessPicker(Window owner, WindowsProcessHost host)
@@ -226,7 +232,7 @@ public sealed class ProcessPicker : Window
         Content = grid;
         grid.Children.Add(Ui.Text("Choose an app that’s running on this PC.", 19));
         var search = Ui.Input(""); search.Margin = new Thickness(0, 16, 0, 12); search.ToolTip = "Filter by name or path"; Grid.SetRow(search, 1); grid.Children.Add(search);
-        var list = new ListBox(); Grid.SetRow(list, 2); grid.Children.Add(list);
+        var list = new ListBox { ItemTemplate = (DataTemplate)Application.Current.FindResource("RunningAppRow") }; Grid.SetRow(list, 2); grid.Children.Add(list);
         var footer = new Grid { Margin = new Thickness(0, 15, 0, 0) }; Grid.SetRow(footer, 3); grid.Children.Add(footer);
         var status = Ui.Text("Reading running apps…", 11, true); status.VerticalAlignment = VerticalAlignment.Center; footer.Children.Add(status);
         void Accept() { if (list.SelectedItem is Choice item) { Selected = item.Process; DialogResult = true; } }

@@ -1,9 +1,19 @@
 using System.Text.Json.Serialization;
+using System.ComponentModel;
 
 namespace Pitstop.Core;
 
-public sealed class AppRule
+public enum AppCloseMode { ExitCompletely, GracefulOnly }
+
+public sealed class AppRule : INotifyPropertyChanged
 {
+    private string sessionRole = "";
+    public event PropertyChangedEventHandler? PropertyChanged;
+    [JsonIgnore] public string SessionRole
+    {
+        get => sessionRole;
+        set { if (sessionRole == value) return; sessionRole = value; PropertyChanged?.Invoke(this, new(nameof(SessionRole))); }
+    }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "New app";
     public string LaunchTarget { get; set; } = "";
@@ -11,12 +21,17 @@ public sealed class AppRule
     public string WorkingDirectory { get; set; } = "";
     public string ProcessPath { get; set; } = "";
     public bool Enabled { get; set; } = true;
-    public bool ForceClose { get; set; }
+    [JsonConverter(typeof(JsonStringEnumConverter<AppCloseMode>))]
+    public AppCloseMode CloseMode { get; set; } = AppCloseMode.ExitCompletely;
+    public bool IncludeChildProcesses { get; set; } = true;
+    // The old false default meant "hide to tray" for many apps. Old profiles now
+    // adopt ExitCompletely; new profiles can explicitly select GracefulOnly.
+    [JsonIgnore] public bool ForceClose { get => CloseMode == AppCloseMode.ExitCompletely; set => CloseMode = value ? AppCloseMode.ExitCompletely : AppCloseMode.GracefulOnly; }
     public int DelaySeconds { get; set; } = 1;
     [JsonIgnore] public bool Configured => !string.IsNullOrWhiteSpace(ProcessPath) && !string.IsNullOrWhiteSpace(LaunchTarget);
     [JsonIgnore] public string Detail => !Configured ? "Choose the app on your PC" : ProcessPath;
     [JsonIgnore] public string Initial => string.IsNullOrWhiteSpace(Name) ? "A" : Name[..1].ToUpperInvariant();
-    [JsonIgnore] public string CloseHint => ForceClose ? "Force close enabled" : "Graceful close";
+    [JsonIgnore] public string CloseHint => (ForceClose ? "Exit fully" : "Graceful only") + (IncludeChildProcesses ? " · include app helpers" : "");
 }
 
 public sealed class Profile
@@ -52,6 +67,7 @@ public sealed class LaunchedApp
     public bool WasAlreadyRunning { get; set; }
     public bool LaunchAttempted { get; set; }
     public bool TrackingFinished { get; set; }
+    public bool LaunchFailed { get; set; }
     public bool CloseFinished { get; set; }
 }
 

@@ -1,0 +1,66 @@
+name: Windows verification
+on:
+  push:
+    branches: [main, 'fix/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test session and exit policies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path work -Force | Out-Null
+          dotnet run --project tests/Pitstop.Tests -c Release 2>&1 | Tee-Object -FilePath work/test-results.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish disposable Windows workers
+        shell: pwsh
+        run: |
+          dotnet publish tests/Pitstop.TestWorker -c Release -r win-x64 --self-contained false -o work/smoke-worker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Exercise native Windows closing, session restore, icons, and UI startup
+        shell: pwsh
+        run: |
+          dotnet run --project tests/Pitstop.WindowsSmoke -c Release -- work/smoke-worker 2>&1 | Tee-Object -FilePath work/windows-smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package portable Windows app
+        shell: pwsh
+        run: ./Build.ps1 -SkipTests
+      - name: Prepare source archive and checksums
+        shell: pwsh
+        run: |
+          git archive --format=zip --output=dist/Pitstop-Source.zip HEAD . ':!builds'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hashes = Get-ChildItem dist/*.zip | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          Set-Content -Path dist/SHA256SUMS.txt -Value $hashes -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pitstop-Windows-x64
+          path: dist/*
+          retention-days: 30
+          compression-level: 0
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Pitstop-Windows-x64
+          path: dist
+      - name: Publish verified preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --title "Pitstop $GITHUB_REF_NAME" --notes-file .github/release-notes.md
