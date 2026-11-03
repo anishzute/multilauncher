@@ -1,0 +1,7 @@
+work/
+**/bin/
+**/obj/
+.vs/
+*.user
+publish/
+dist/

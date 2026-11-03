@@ -1,0 +1,38 @@
+Pitstop v0.1 validation — 2026-10-29
+Build host: Debian Linux x64
+SDK: .NET 10.0.403
+Target: Windows x64; native WPF GUI; self-contained .NET 10.0.14
+Native Windows execution: NOT performed (the build environment runs Linux)
+Executable SHA-256: f5185a3ca6ac244929aa3cda100daa0411ca09fd3f870c9f3fb6647837933ab7
+
+SESSION ENGINE TEST OUTPUT
+PASS  Start/end preserves existing apps and restores only previously running apps
+PASS  PID reuse never closes a replacement process
+PASS  A close failure keeps the journal and retry is idempotent
+PASS  A restart failure can be retried without duplicate restores
+PASS  Saved sessions survive an engine restart
+PASS  Disabled rules have no process effects
+PASS  Conflicting lists fail before any process changes
+PASS  Missing launch targets fail before closing background apps
+PASS  An empty profile leaves the desktop untouched
+PASS  A second start leaves the active session intact
+PASS  Independently opened later instances stay open
+PASS  Owned child instances close with the session
+PASS  Every process change has a durable intent record
+PASS  Atomic file writes keep backups and archive completed sessions
+PASS  A corrupt session is preserved and fails closed
+PASS  A failed launch still allows background apps to be restored
+PASS  A self-restarted background app is not launched twice
+PASS  Force-close consent is copied into the session snapshot
+PASS  An interrupted launch is recovered using path and creation time
+PASS  Path comparisons are exact, case-insensitive, and separator-normalized
+
+20/20 passed
+
+WINDOWS PUBLISH OUTPUT
+  Pitstop.Core -> /workspace/multilauncher/src/Pitstop.Core/bin/Release/net10.0/Pitstop.Core.dll
+  Pitstop.Windows -> /workspace/multilauncher/src/Pitstop.Windows/bin/Release/net10.0-windows/win-x64/Pitstop.dll
+  Pitstop.Windows -> /workspace/multilauncher/work/publish/win-x64/
+
+Package structure, XML, PE header, checksums, and ZIP integrity were checked.
+See VALIDATION.md for Windows verification steps and limitations.

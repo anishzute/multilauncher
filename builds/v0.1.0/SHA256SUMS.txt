@@ -1,0 +1,2 @@
+cc2eb0077cb03cb92ecdfe42d631388769fbfef9812854f9172f59086b9be565  Pitstop-Windows-x64.zip
+dba07f9bc3f5180d1024a916d0e1ddb1ecda59af6b17100ef669fbb922aec4fb  Pitstop-Source.zip

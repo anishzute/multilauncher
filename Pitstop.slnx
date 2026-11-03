@@ -1,0 +1,5 @@
+<Solution>
+ <Project Path="src/Pitstop.Core/Pitstop.Core.csproj"/>
+ <Project Path="src/Pitstop.Windows/Pitstop.Windows.csproj"/>
+ <Project Path="tests/Pitstop.Tests/Pitstop.Tests.csproj"/>
+</Solution>
