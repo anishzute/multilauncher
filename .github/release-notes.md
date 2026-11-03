@@ -6,4 +6,4 @@ Existing profiles keep their paths, enabled apps, and order. The old unchecked F
 
 The Windows verification workflow checks real disposable processes that hide on window close, windowless background processes, bundled helpers, and session restoration, plus UI startup and native icon extraction. These fixtures model the reported failures; Trading Paints, iRacing UI, and Plex themselves are not installed on the CI runner.
 
-Download **Pitstop-Windows-x64.zip**, extract it, and run **Pitstop.exe**. Your profiles remain in `%LocalAppData%\Pitstop`. End any active session and exit the previous Pitstop version before replacing it.
+Download **Pitstop-Windows-x64.zip**, extract it, and run **Pitstop.exe**. Your profiles remain in `%LocalAppData%\Pitstop`. Exit the previous Pitstop from its tray menu before replacing it. If the old version cannot finish a session, choose **No** when asked to restore on exit; this keeps the session record. Open v0.2.0 and use **Retry restore** to finish with the corrected exit logic.

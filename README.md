@@ -4,9 +4,19 @@ A small native Windows app for switching between desktop setups. Keep a profile 
 
 ## Download
 
-[Download Pitstop for Windows x64](https://github.com/anishzute/multilauncher/raw/refs/heads/main/builds/v0.1.0/Pitstop-Windows-x64.zip).
+[Download Pitstop v0.2.0 for Windows x64](https://github.com/anishzute/multilauncher/releases/download/v0.2.0/Pitstop-Windows-x64.zip).
 
-The [v0.1.0 build folder](builds/v0.1.0) also contains the original source archive, SHA-256 checksums, and validation report. This preview passed 20 session-engine tests and cross-compiles for Windows; the Windows interface and actual process control still need a Windows smoke test.
+The [releases page](https://github.com/anishzute/multilauncher/releases) contains the portable build, source archive, and SHA-256 checksums. The original [v0.1.0 build folder](builds/v0.1.0) is retained for reference. The Windows verification workflow runs 37 core regression tests and six native checks before publishing tagged preview releases.
+
+## New in v0.2.0
+
+Drag rows to change order in either app list or the profile sidebar. An insertion line shows the drop position, lists scroll while dragging, and the new order saves immediately. App rows stay within their original Open or Close list.
+
+Configured apps and the running-app picker display native executable or shortcut icons. Unconfigured entries retain their initials.
+
+Closing now defaults to **Exit completely**: request a normal exit, allow three seconds, then terminate and verify any remaining tray or background process. This corrects the old window-close default that could hide Trading Paints or leave Plex/iRacing UI running. Bundled child executables are included when they descend from the selected app and live in its installation folder. **Graceful only** remains an explicit per-app alternative.
+
+Existing profiles keep their paths and order, and the old unchecked Force close default adopts Exit completely. Save work in selected apps before starting or ending a session. Exit the previous Pitstop from its tray menu before replacing it. If it cannot finish a session, choose No when asked to restore on exit to retain the record, then use Retry restore in v0.2.0. Profiles and session records remain in LocalAppData.
 
 ## Run the portable app
 
@@ -17,7 +27,7 @@ The [v0.1.0 build folder](builds/v0.1.0) also contains the original source archi
 5. Add unwanted background apps to **Close while you play**. Give each one a valid launch target so it can be reopened.
 6. Click **Start session**. When done, click **End & restore**.
 
-The binary is an unsigned first version. Source and build instructions are included separately. See `VALIDATION.md` for what was checked and what still needs a Windows smoke test.
+The binary is an unsigned preview. Source and build instructions are included separately. See `VALIDATION.md` for automated verification and the checks to perform with your actual apps.
 
 ## Included profiles
 
@@ -27,7 +37,7 @@ The binary is an unsigned first version. Source and build instructions are inclu
 
 Plex Media Server and Samsung Notes are disabled suggestions on each Close list. Add any other apps you want to manage. Pitstop does not guess which processes are unnecessary.
 
-Create, rename, duplicate, or delete profiles. Duplicating a configured profile is an easy way to share tools across different games. Click an app’s Edit button to move it up or down in the launch order, remove it, set arguments, or add a delay after launching it.
+Create, rename, duplicate, or delete profiles. Duplicating a configured profile is an easy way to share tools across different games. Drag rows to reorder them; Edit also offers move buttons, removal, launch arguments, and delays.
 
 ## Close behavior and restoration
 
@@ -37,7 +47,10 @@ Create, rename, duplicate, or delete profiles. Duplicating a configured profile 
 - Apps launched for the session are tracked by executable path, process ID, and creation time. Another app with the same filename in another folder does not match. Reused process IDs do not match.
 - Only close-list apps that were running when the session started are candidates for reopening. If an app is already running at restore time, it is not launched again.
 - Where Windows provides it, the original launch arguments are saved for a directly launched executable. A configured shortcut or launch link remains the restart route when one is used.
-- Graceful exit is the default. A **Force close** option is available per app. It also applies when ending a session for apps on the Open list. Background apps without windows, including many tray utilities, may need this option. Force close can lose unsaved work.
+- **Exit completely** is the default, including for apps on the Open list when ending a session. It verifies process exit and terminates tray/background apps that refuse a normal window close. Save work first. Choose **Graceful only** per app to leave a refusing app running instead.
+- Bundled helpers are included by default, restricted to the selected app’s process family and installation folder. Unrelated programs outside that folder and pre-session apps are preserved.
+- Session activity shows PIDs and actual exit results. Access-denied messages explain when Pitstop may need to be restarted as administrator.
+- Delayed launcher processes can be recovered when ending a session. If an app cannot be identified, the session remains saved and offers manual cleanup confirmation instead of reporting false success.
 - If a close or restore cannot finish, the record stays on disk. Resolve the item in Session activity and use **Retry restore**. Finished restore steps are not repeated.
 - Closing Pitstop during a session minimizes it to the system tray. The tray menu can reopen Pitstop, end the session, or quit while keeping the saved session for later.
 - The app allows one active session at a time. Profiles are locked while that session is active.
@@ -56,7 +69,7 @@ Pitstop manages ordinary apps in your current Windows session. It excludes Windo
 - Other launcher: select its executable and enter its normal launch arguments. Set Process executable to the resulting game or app, not a shared launcher you want to keep running.
 - Store app: an installed app may support a `shell:AppsFolder\PACKAGE!APP` launch target. Use the actual installed AppUserModelID, and choose the running app’s executable for tracking. Packaging or permissions may prevent some Store apps from being managed.
 
-Pitstop waits up to 10 seconds to detect a launched process. If a launcher takes longer, Session activity reports that the process was not detected. Such an untracked game must be exited manually. List helper apps separately if they use a different executable and should be closed too.
+Pitstop checks for a launched process at startup and again when ending the session if a launcher was slow. If it still cannot identify the executable, Session activity asks you to check the process path and confirm manual cleanup. Bundled helpers in the same installation folder can be tracked automatically; add helper apps outside that folder separately if needed.
 
 ## Local data and backups
 
@@ -71,7 +84,7 @@ All data is under `%LocalAppData%\Pitstop`:
 
 Writes use a flushed temporary file and atomic replacement. A damaged JSON file is preserved and reported; it is not silently replaced with a fresh session. If necessary, close Pitstop, preserve the damaged file, and review its `.bak` copy. Do not delete a session record while you still need its restore information.
 
-Settings & help offers profile export/import and a button to open the data folder. Import adds profiles rather than replacing yours. Review paths and Force close settings after import. Session records may include the command-line arguments of apps selected for closing; treat these local files as private. Pitstop has no network client, cloud account, or telemetry. History can be removed from the data folder when you no longer need it.
+Settings & help offers profile export/import and a button to open the data folder. Import adds profiles rather than replacing yours. Review paths and close behavior after import. Session records may include the command-line arguments of apps selected for closing; treat these local files as private. Pitstop has no network client, cloud account, or telemetry. History can be removed from the data folder when you no longer need it.
 
 ## Build from source
 
@@ -81,7 +94,7 @@ Install the **.NET 10 SDK**. On Windows, open PowerShell in this folder:
 ./Build.ps1
 ```
 
-This runs the session tests and creates a portable x64 build at `dist/Pitstop-win-x64.zip`. To target Windows on ARM, use `./Build.ps1 -Runtime win-arm64`; that target has not been validated in this build.
+This runs the session tests and creates a portable x64 build at `dist/Pitstop-Windows-x64.zip`, including dependency licenses. To target Windows on ARM, use `./Build.ps1 -Runtime win-arm64`; ARM is not covered by the x64 verification workflow.
 
 For development:
 
@@ -90,4 +103,4 @@ dotnet run --project tests/Pitstop.Tests -c Release
 dotnet run --project src/Pitstop.Windows
 ```
 
-The UI is WPF. The core session engine is independent of Windows process control so its behavior can be tested without touching real apps. `WindowsProcessHost` uses WMI for inventory and the Windows process APIs for launching and exiting apps. It never kills by filename or recursively terminates an arbitrary process tree.
+The UI is WPF. The core session engine is independent of Windows process control so its behavior can be tested without touching real apps. `WindowsProcessHost` uses WMI for inventory and limited-information process handles for identity verification and exit. It never kills by filename or recursively terminates an arbitrary process tree. The [Windows verification workflow](https://github.com/anishzute/multilauncher/actions/workflows/windows-verification.yml) exercises real disposable processes, UI startup, and icon extraction; tagged builds publish only after verification succeeds.
