@@ -9,7 +9,7 @@
     <AssemblyName>Pitstop</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/pitstop.ico</ApplicationIcon>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Company>Pitstop</Company>
     <Description>One click to your next setup.</Description>
     <PublishSingleFile>true</PublishSingleFile>

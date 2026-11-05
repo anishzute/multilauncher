@@ -6,21 +6,81 @@ public sealed class FileStore : ISessionStore
 {
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     public string Root { get; }
-    public FileStore(string root) { Root = root; Directory.CreateDirectory(root); }
+    public string ProfilesPath => Path.Combine(Root, "profiles.json");
+    public string ProfilesBackupPath => Path.Combine(Root, "profiles.backup.json");
+    public string? ProfileStorageNotice { get; private set; }
+    private bool backupFailed;
+    public FileStore(string root) { Root = Path.GetFullPath(root); Directory.CreateDirectory(Root); }
     private string ActivePath => Path.Combine(Root, "active-session.json");
 
     public List<Profile> LoadProfiles()
     {
-        var path = Path.Combine(Root, "profiles.json");
-        if (!File.Exists(path)) { var defaults = StarterProfiles.Create(); SaveProfiles(defaults); return defaults; }
-        return Read<List<Profile>>(path);
+        Exception? damaged = null;
+        if (File.Exists(ProfilesPath))
+        {
+            try
+            {
+                var profiles = ReadProfiles(ProfilesPath);
+                BackupProfiles(profiles);
+                return profiles;
+            }
+            catch (InvalidDataException ex) { damaged = ex; }
+        }
+        var backups = new[] { ProfilesBackupPath, ProfilesPath + ".bak", ProfilesBackupPath + ".bak" }
+            .Where(File.Exists).OrderByDescending(File.GetLastWriteTimeUtc).ToList();
+        foreach (var backup in backups)
+        {
+            List<Profile> profiles;
+            try { profiles = ReadProfiles(backup); }
+            catch (InvalidDataException ex) { damaged ??= ex; continue; }
+            string? preserved = null;
+            if (File.Exists(ProfilesPath))
+            {
+                preserved = Path.Combine(Root, $"profiles.damaged-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.json");
+                File.Move(ProfilesPath, preserved);
+            }
+            SaveProfiles(profiles);
+            ProfileStorageNotice = $"Profiles recovered from {Path.GetFileName(backup)}."
+                + (preserved is null ? "" : $" The damaged file was preserved as {Path.GetFileName(preserved)}.");
+            return profiles;
+        }
+        if (damaged is not null || backups.Count > 0)
+            throw new InvalidDataException($"Cannot recover profiles in {Root}. Existing files were preserved. Restore a valid exported profiles JSON file; no starter profiles have overwritten your data.", damaged);
+        var defaults = StarterProfiles.Create(); SaveProfiles(defaults); return defaults;
     }
-    public void SaveProfiles(List<Profile> profiles) => Write(Path.Combine(Root, "profiles.json"), profiles);
+    public void SaveProfiles(List<Profile> profiles)
+    {
+        ValidateProfiles(profiles);
+        Write(ProfilesPath, profiles);
+        BackupProfiles(profiles);
+    }
+    private void BackupProfiles(List<Profile> profiles)
+    {
+        try
+        {
+            Write(ProfilesBackupPath, profiles);
+            if (backupFailed) ProfileStorageNotice = null;
+            backupFailed = false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { backupFailed = true; ProfileStorageNotice = $"Profiles are saved, but the recovery copy could not be updated: {ex.Message}"; }
+    }
+    public static List<Profile> ReadProfiles(string path)
+    {
+        var profiles = Read<List<Profile>>(path);
+        ValidateProfiles(profiles); return profiles;
+    }
+    private static void ValidateProfiles(List<Profile> profiles)
+    {
+        if (profiles.Any(p => p is null || string.IsNullOrWhiteSpace(p.Name) || p.OpenApps is null || p.CloseApps is null
+            || p.OpenApps.Concat(p.CloseApps).Any(a => a is null || string.IsNullOrWhiteSpace(a.Name))))
+            throw new InvalidDataException("The profiles file contains invalid entries. No profiles have been discarded.");
+    }
     public SessionState? LoadActive()
     {
         if (!File.Exists(ActivePath)) return null;
         var state = Read<SessionState>(ActivePath);
-        if (state.Status == "Completed") { Complete(state); return null; }
+        if (state.Status is "Completed" or "Abandoned") { Complete(state); return null; }
         return state;
     }
     public void SaveActive(SessionState session) => Write(ActivePath, session);
@@ -30,7 +90,9 @@ public sealed class FileStore : ISessionStore
         Directory.CreateDirectory(history);
         Write(Path.Combine(history, $"{session.StartedAt:yyyyMMdd-HHmmss}-{session.Id}.json"), session);
         if (File.Exists(ActivePath)) File.Delete(ActivePath);
-        if (File.Exists(ActivePath + ".bak")) File.Delete(ActivePath + ".bak");
+        try { if (File.Exists(ActivePath + ".bak")) File.Delete(ActivePath + ".bak"); }
+        catch (IOException) { } // A leftover backup must not resurrect a finished session.
+        catch (UnauthorizedAccessException) { }
     }
     public List<ActivityEntry> ReadHistory()
     {

@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon tray;
     private List<ActivityEntry> history;
     private bool busy;
+    private bool resetting;
+    private int resetGeneration;
     private bool quitting;
     private bool refreshing;
     private string page = "profiles";
@@ -42,14 +44,16 @@ public partial class MainWindow : Window
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open Pitstop", null, (_, _) => ShowFromTray());
         menu.Items.Add("End session & restore", null, async (_, _) => { ShowFromTray(); await EndSessionAsync(); });
+        menu.Items.Add("Stop & reset session", null, async (_, _) => { ShowFromTray(); await ResetSessionAsync(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit Pitstop", null, async (_, _) => await ExitFromTrayAsync());
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => ShowFromTray();
         Closed += (_, _) => tray.Dispose();
-        engine.Changed += () => Dispatcher.Invoke(RefreshSession);
+        engine.Changed += () => { if (!quitting) Dispatcher.Invoke(RefreshSession); };
         RefreshProfiles(profiles.FirstOrDefault()?.Id);
         RefreshSession();
+        RefreshStorage();
         if (engine.Current is not null) StatusText.Text = "Saved session recovered. Use End & restore when you’re ready.";
     }
 
@@ -83,11 +87,14 @@ public partial class MainWindow : Window
         SetupHint.Visibility = p is not null && p.OpenApps.Concat(p.CloseApps).Any(a => !a.Configured) ? Visibility.Visible : Visibility.Collapsed;
         AppLists.Margin = SetupHint.Visibility == Visibility.Collapsed ? new Thickness(0, 18, 0, 0) : new Thickness(0);
         RefreshSession();
+        RefreshStorage();
     }
     private void RefreshSession()
     {
+        if (quitting) return;
         var session = engine.Current;
-        var idle = !busy && session is null;
+        var working = busy || resetting;
+        var idle = !working && session is null;
         if (Selected is { } selected)
         {
             foreach (var rule in selected.OpenApps)
@@ -102,22 +109,25 @@ public partial class MainWindow : Window
         EditProfileButton.IsEnabled = DuplicateButton.IsEnabled = DeleteProfileButton.IsEnabled = idle && Selected is not null;
         TopNewButton.IsEnabled = NewProfileButton.IsEnabled = idle;
         DragReorder.SetEnabled(ProfilesList, idle);
-        EndButton.IsEnabled = !busy && session is not null;
+        EndButton.IsEnabled = !working && session is not null && session.Status != "Abandoned";
+        ResetButton.IsEnabled = session is not null && !resetting;
+        ResetButton.Content = resetting ? "Stopping…" : busy ? "Stop & reset" : "Reset session";
         SessionBanner.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
-        BusyBar.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        BusyBar.Visibility = working ? Visibility.Visible : Visibility.Collapsed;
         ConfirmUntrackedButton.Visibility = session?.Status == "Needs attention" && session.Launched.Any(a =>
             a.LaunchAttempted && !a.WasAlreadyRunning && !a.CloseFinished && a.Tracked.Count == 0)
             ? Visibility.Visible : Visibility.Collapsed;
-        ConfirmUntrackedButton.IsEnabled = !busy;
+        ConfirmUntrackedButton.IsEnabled = !working;
         if (session is not null)
         {
-            var warning = session.Status == "Needs attention" || session.Activity.LastOrDefault()?.Level is "Warning" or "Error";
+            var warning = session.Status is "Needs attention" or "Paused" or "Abandoned" || session.Activity.LastOrDefault()?.Level is "Warning" or "Error";
             SessionTitle.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(warning ? (byte)235 : (byte)183, warning ? (byte)187 : (byte)219, warning ? (byte)140 : (byte)191));
             SessionTitle.Text = $"{session.ProfileName}  ·  {session.Status}";
             SessionDetail.Text = session.Activity.LastOrDefault()?.Message ?? "Saved session available to restore.";
-            EndButton.Content = session.Status == "Needs attention" ? "↶  Retry restore" : "■  End & restore";
+            EndButton.Content = session.Status == "Needs attention" ? "↶  Retry restore" : session.Status == "Paused" ? "↶  Resume restore" : "■  End & restore";
             StatusText.Text = session.Activity.LastOrDefault()?.Message ?? "Session record saved.";
             tray.Text = "Pitstop · " + session.ProfileName[..Math.Min(session.ProfileName.Length, 40)];
+            if (resetting) SessionDetail.Text = "Stopping remaining steps. Waiting for any already-issued app action, then resetting the session.";
         }
         var entries = (session?.Activity.AsEnumerable().Reverse() ?? []).Concat(history).Take(1000).ToList();
         ActivityList.ItemsSource = entries.Count > 0 ? entries : new[] { new ActivityEntry(DateTimeOffset.Now, "Info", "Your session activity will appear here.") };
@@ -126,6 +136,7 @@ public partial class MainWindow : Window
     {
         store.SaveProfiles(profiles);
         RefreshProfiles();
+        RefreshStorage();
     }
     private void List_Reordered(object sender, RoutedEventArgs e)
     {
@@ -194,7 +205,7 @@ public partial class MainWindow : Window
     }
     private async void StartSession_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || Selected is not { } p) return;
+        if (busy || resetting || Selected is not { } p) return;
         busy = true; RefreshSession();
         try { store.SaveProfiles(profiles); await engine.StartAsync(p); }
         catch (Exception ex) { Ui.Error(this, ex); }
@@ -203,7 +214,7 @@ public partial class MainWindow : Window
     private async void EndSession_Click(object sender, RoutedEventArgs e) => await EndSessionAsync();
     private async void ConfirmUntracked_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || engine.Current is null) return;
+        if (busy || resetting || engine.Current is null) return;
         if (MessageBox.Show(this, "Confirm that you have exited any apps marked as unidentified in this session. Pitstop will then finish restoring your previous apps.",
             "Finish manual cleanup", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         busy = true; RefreshSession();
@@ -213,16 +224,18 @@ public partial class MainWindow : Window
     }
     private async Task EndSessionAsync()
     {
-        if (busy || engine.Current is null) return;
+        if (busy || resetting || engine.Current is null) return;
+        var generation = resetGeneration;
         busy = true; RefreshSession();
         try
         {
             await engine.EndAsync();
+            if (quitting || generation != resetGeneration) return;
             history = store.ReadHistory();
             if (engine.Current is null) { StatusText.Text = "Session finished. Your previous apps are back."; tray.Text = "Pitstop · Ready when you are"; }
             else ShowPage("activity");
         }
-        catch (Exception ex) { Ui.Error(this, ex); }
+        catch (Exception ex) { if (!quitting && generation == resetGeneration) Ui.Error(this, ex); }
         finally { busy = false; RefreshSession(); }
     }
     private void ShowPage(string name)
@@ -242,7 +255,7 @@ public partial class MainWindow : Window
     }
     private void ProfilesNav_Click(object sender, RoutedEventArgs e) => ShowPage("profiles");
     private void ActivityNav_Click(object sender, RoutedEventArgs e) => ShowPage("activity");
-    private void SettingsNav_Click(object sender, RoutedEventArgs e) => ShowPage("settings");
+    private void SettingsNav_Click(object sender, RoutedEventArgs e) { RefreshStorage(); ShowPage("settings"); }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new SaveFileDialog { FileName = "Pitstop-profiles.json", Filter = "JSON profiles (*.json)|*.json" };
@@ -275,23 +288,53 @@ public partial class MainWindow : Window
         catch (Exception ex) { Ui.Error(this, ex); }
     }
     private void DataFolder_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo(store.Root) { UseShellExecute = true });
+    private void RefreshStorage()
+    {
+        ProfilesFilePath.Text = store.ProfilesPath;
+        ProfilesBackupPath.Text = store.ProfilesBackupPath;
+        StorageNotice.Text = store.ProfileStorageNotice ?? "Profiles save automatically outside the app folder. Replacing or moving Pitstop.exe does not replace your profiles. Use the same Windows account, or import an exported backup on another account.";
+    }
+    private void ProfilesFile_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo(store.ProfilesPath) { UseShellExecute = true });
+    private async void ResetSession_Click(object sender, RoutedEventArgs e) => await ResetSessionAsync();
+    private async Task<bool> ResetSessionAsync(bool confirm = true)
+    {
+        if (resetting) return false;
+        if (engine.Current is null) return true;
+        if (confirm && MessageBox.Show(this, "Stop and reset this session?\n\nRemaining restore steps will be canceled. Apps will be left as they are; you can clean them up manually. Your profiles are kept, and the session record is archived for reference.",
+            "Reset session", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
+        resetGeneration++;
+        resetting = true; RefreshSession();
+        try
+        {
+            await engine.ResetAsync();
+            if (quitting) return true;
+            history = store.ReadHistory();
+            StatusText.Text = "Session reset. Profiles kept; apps left as they are.";
+            tray.Text = "Pitstop · Ready when you are";
+            return true;
+        }
+        catch (Exception ex) { Ui.Error(this, ex); return false; }
+        finally { resetting = false; RefreshSession(); }
+    }
+    private async void Exit_Click(object sender, RoutedEventArgs e) => await ExitFromTrayAsync();
     private void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); }
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
-        if (quitting || (!busy && engine.Current is null)) return;
+        if (quitting || (!busy && !resetting && engine.Current is null)) return;
         e.Cancel = true; Hide();
         tray.ShowBalloonTip(2500, "Pitstop is in the system tray", "Your session is still saved. Open Pitstop from the tray to end and restore.", Forms.ToolTipIcon.Info);
     }
     private async Task ExitFromTrayAsync()
     {
         ShowFromTray();
-        if (busy) { MessageBox.Show(this, "Wait for the current session action to finish before exiting.", "Pitstop"); return; }
+        engine.RequestStop();
         if (engine.Current is not null)
         {
-            var answer = MessageBox.Show(this, "End the session and restore your previous apps before exiting?\n\nYes: restore, then exit.\nNo: exit now and keep the saved session for later.", "Exit Pitstop", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-            if (answer == MessageBoxResult.Cancel) return;
-            if (answer == MessageBoxResult.Yes) { await EndSessionAsync(); if (engine.Current is not null) return; }
+            var dialog = new SessionExitDialog(this);
+            if (dialog.ShowDialog() != true) return;
+            if (dialog.Choice == SessionExitChoice.ResetSession && !await ResetSessionAsync(false)) return;
         }
+        engine.RequestStop();
         quitting = true; Close();
     }
 }

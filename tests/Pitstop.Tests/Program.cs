@@ -39,7 +39,22 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Delayed launcher processes are recovered when ending a session", LateLaunch),
     ("An unidentified launch requires manual confirmation, not false success", UnknownLaunch),
     ("A failed launch never claims a later manually opened app", FailedLaunchManualApp),
-    ("A process that survives an apparent close keeps the restore record", FalseCloseSuccess)
+    ("A process that survives an apparent close keeps the restore record", FalseCloseSuccess),
+    ("Reset abandons failed steps without any process actions", RecoveryTests.ResetFailedRestore),
+    ("Reset unlocks new profiles and remains reset after restart", RecoveryTests.ResetThenStart),
+    ("Reset cancels blocked inventory without waiting for retry", RecoveryTests.ResetDuringInventory),
+    ("Reset stops after an issued close without reopening other apps", RecoveryTests.ResetDuringClose),
+    ("Reset cancels long launch delays and prevents the next launch", RecoveryTests.ResetDuringDelay),
+    ("Stop without reset keeps a resumable record", RecoveryTests.StopAndResume),
+    ("Interrupted terminal resets are not resurrected", RecoveryTests.TerminalResetRecovery),
+    ("Archive failure preserves a reset record without process actions", RecoveryTests.ResetArchiveFailure),
+    ("Profile JSON and order survive reset and app-folder replacement", RecoveryTests.ProfilesSurviveUpdateAndReset),
+    ("Missing profiles recover the latest saved JSON", RecoveryTests.MissingProfileRecovery),
+    ("Damaged profiles recover without discarding the original", RecoveryTests.DamagedProfileRecovery),
+    ("Legacy backups recover before defaults are created", RecoveryTests.LegacyProfileBackup),
+    ("Unrecoverable profiles are never overwritten by starters", RecoveryTests.UnrecoverableProfiles),
+    ("An intentionally empty profile list stays empty", RecoveryTests.EmptyProfilesPersist),
+    ("Backup failure never prevents primary profile persistence", RecoveryTests.BackupFailure)
 };
 int failures = 0;
 foreach (var (name, run) in tests)
@@ -327,15 +342,19 @@ static async Task FalseCloseSuccess()
 
 sealed class MemoryStore : ISessionStore
 {
+    public bool FailComplete;
     public SessionState? Active;
     public List<SessionState> Completed = [];
     private static SessionState Copy(SessionState s) => JsonSerializer.Deserialize<SessionState>(JsonSerializer.Serialize(s, FileStore.Json), FileStore.Json)!;
     public SessionState? LoadActive() => Active is null ? null : Copy(Active);
     public void SaveActive(SessionState session) => Active = Copy(session);
-    public void Complete(SessionState session) { Completed.Add(Copy(session)); Active = null; }
+    public void Complete(SessionState session) { if (FailComplete) throw new IOException("Archive write failed"); Completed.Add(Copy(session)); Active = null; }
 }
 sealed class FakeHost : IProcessHost
 {
+    public int Captures;
+    public TaskCompletionSource<IReadOnlyList<ProcessSnapshot>>? CaptureBlocker;
+    public TaskCompletionSource? DelayBlocker;
     public bool SkipLaunchDetection;
     public bool FalseCloseSuccess;
     public List<ProcessSnapshot> Running = [];
@@ -354,7 +373,7 @@ sealed class FakeHost : IProcessHost
         var process = new ProcessSnapshot { Pid = nextPid++, StartedUtcTicks = DateTime.UtcNow.Ticks, ExecutablePath = rule.ProcessPath, Arguments = args };
         Running.Add(process); return process;
     }
-    public Task<IReadOnlyList<ProcessSnapshot>> CaptureAsync() => Task.FromResult<IReadOnlyList<ProcessSnapshot>>(Running.ToList());
+    public Task<IReadOnlyList<ProcessSnapshot>> CaptureAsync() { Captures++; return CaptureBlocker?.Task ?? Task.FromResult<IReadOnlyList<ProcessSnapshot>>(Running.ToList()); }
     public void Validate(AppRule rule, bool forLaunch) { if (Invalid.Contains(rule.ProcessPath)) throw new InvalidOperationException("Missing target"); }
     public Task<LaunchResult> LaunchAsync(AppRule rule)
     {
@@ -370,7 +389,7 @@ sealed class FakeHost : IProcessHost
         if (!FalseCloseSuccess) Running.RemoveAll(p => p.Identity == process.Identity);
         return Task.FromResult(new CloseResult(true, "Closed"));
     }
-    public Task WaitAsync(TimeSpan delay) => Task.CompletedTask;
+    public Task WaitAsync(TimeSpan delay) => DelayBlocker?.Task ?? Task.CompletedTask;
 }
 sealed class FakeLifetime : IProcessLifetime
 {

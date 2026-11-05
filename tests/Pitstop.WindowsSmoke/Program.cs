@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Pitstop.Core;
@@ -33,6 +34,27 @@ internal static class Program
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             window.Close();
             Console.WriteLine("PASS  WPF window, resources, app templates, and tray icon initialize on Windows"); passed++;
+
+            // Exercise the actual Exit button and explicit keep-session choice
+            // while a failed restore record is present. No retry is requested.
+            var uiProfile = uiStore.LoadProfiles().Single();
+            uiStore.SaveActive(new SessionState { ProfileId = uiProfile.Id, ProfileName = uiProfile.Name, Status = "Needs attention" });
+            var failedWindow = new MainWindow(uiStore, host);
+            failedWindow.Show(); failedWindow.UpdateLayout();
+            if (failedWindow.FindName("ResetButton") is not Button { IsEnabled: true }) throw new Exception("Failed restore has no enabled reset action.");
+            if (failedWindow.FindName("ProfilesFilePath") is not TextBox pathBox || pathBox.Text != uiStore.ProfilesPath) throw new Exception("Stable JSON path is not shown in Settings.");
+            var chooseExit = Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() =>
+            {
+                var dialog = Application.Current.Windows.OfType<SessionExitDialog>().Single();
+                var keep = LogicalTreeHelper.FindLogicalNode(dialog, "KeepSessionExitButton") as Button
+                    ?? throw new Exception("Explicit keep-session exit action is missing.");
+                keep.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }));
+            ((Button)failedWindow.FindName("ExitButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            chooseExit.Task.GetAwaiter().GetResult();
+            if (failedWindow.IsVisible || uiStore.LoadActive()?.Status != "Needs attention" || uiStore.LoadProfiles().Single().Id != uiProfile.Id)
+                throw new Exception("Exit retried restore, discarded the session, or changed profiles.");
+            Console.WriteLine("PASS  Failed-restore UI exposes Reset and exits while keeping its session and profiles without retry"); passed++;
 
             AppRule Install(string folder, string name, string arguments = "--background")
             {
@@ -101,7 +123,29 @@ internal static class Program
             Check(familySession.Current is null && !remaining.Any(p => Paths.Equal(p.ExecutablePath, helper.ProcessPath)), "Bundled helper stayed alive.");
             Check(remaining.Any(p => p.Identity == outside.Identity), "Unrelated child outside the installation folder was terminated.");
             Console.WriteLine("PASS  Bundled helper exits; external child is preserved"); passed++;
-            Console.WriteLine($"\n{passed}/6 Windows smoke checks passed");
+
+            var resetStore = new FileStore(Path.Combine(root, "reset-data"));
+            var resetPlex = Install("reset/background", "ResetBackgroundFixture");
+            var resetGame = Install("reset/game", "ResetGameFixture");
+            var custom = new Profile { Name = "Persistent custom profile", OpenApps = [resetGame], CloseApps = [resetPlex] };
+            resetStore.SaveProfiles([custom]);
+            var savedJson = File.ReadAllText(resetStore.ProfilesPath);
+            await host.LaunchAsync(resetPlex); await WaitFor(resetPlex);
+            var resetSession = new SessionEngine(host, resetStore); await resetSession.StartAsync(custom);
+            resetSession.Current!.Stopped.Single().Restart.LaunchTarget = Path.Combine(root, "missing-restart-target.exe");
+            await resetSession.EndAsync();
+            Check(resetSession.Current?.Status == "Needs attention", "The restore failure was not retained.");
+            var beforeReset = (await host.CaptureAsync()).Where(p => p.ExecutablePath.StartsWith(root, StringComparison.OrdinalIgnoreCase)).Select(p => p.Identity).ToHashSet();
+            await resetSession.ResetAsync();
+            var afterReset = (await host.CaptureAsync()).Where(p => p.ExecutablePath.StartsWith(root, StringComparison.OrdinalIgnoreCase)).Select(p => p.Identity).ToHashSet();
+            Check(resetSession.Current is null && beforeReset.SetEquals(afterReset), "Reset changed processes or kept the failed session active.");
+            Check(File.ReadAllText(resetStore.ProfilesPath) == savedJson && new SessionEngine(host, resetStore).Current is null, "Reset lost profiles or returned after restart.");
+            Console.WriteLine("PASS  Failed restore resets without process changes and preserves profile JSON across restart"); passed++;
+            File.Delete(resetStore.ProfilesPath);
+            var upgraded = new FileStore(resetStore.Root); var recoveredProfiles = upgraded.LoadProfiles();
+            Check(recoveredProfiles.Single().Id == custom.Id && File.ReadAllText(upgraded.ProfilesPath) == savedJson, "Latest JSON backup did not recover after the app reopened.");
+            Console.WriteLine("PASS  Persistent profile JSON is recovered from its latest backup on Windows"); passed++;
+            Console.WriteLine($"\n{passed}/9 Windows smoke checks passed");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine("FAIL  " + ex); return 1; }

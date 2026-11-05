@@ -15,6 +15,30 @@ using Pitstop.Core;
 
 namespace Pitstop.Windows;
 
+public enum SessionExitChoice { Cancel, KeepSession, ResetSession }
+
+public sealed class SessionExitDialog : Window
+{
+    public SessionExitChoice Choice { get; private set; }
+    public SessionExitDialog(Window owner)
+    {
+        Owner = owner; Title = "Exit Pitstop"; Width = 600; Height = 250;
+        ResizeMode = ResizeMode.NoResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Ui.DarkTitleBar(this);
+        var panel = new StackPanel { Margin = new Thickness(24) }; Content = panel;
+        panel.Children.Add(Ui.Text("Exit without retrying restore", 22));
+        var message = Ui.Text("Keep the session to restore later, or reset it and leave apps as they are. Your profiles are kept in both cases.", 13, true);
+        message.Margin = new Thickness(0, 15, 0, 25); panel.Children.Add(message);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(Ui.Button("Cancel", (_, _) => DialogResult = false));
+        var reset = Ui.Button("Reset & exit", (_, _) => { Choice = SessionExitChoice.ResetSession; DialogResult = true; });
+        reset.Name = "ResetSessionExitButton"; buttons.Children.Add(reset);
+        var keep = Ui.Button("Keep session & exit", (_, _) => { Choice = SessionExitChoice.KeepSession; DialogResult = true; }, true);
+        keep.Name = "KeepSessionExitButton"; buttons.Children.Add(keep);
+        panel.Children.Add(buttons);
+    }
+}
+
 public static class Ui
 {
     public static Brush Muted => (Brush)Application.Current.FindResource("Muted");
