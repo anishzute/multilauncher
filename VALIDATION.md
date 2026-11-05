@@ -1,12 +1,14 @@
-# Validation for v0.2.0
+# Validation for v0.3.0
 
 Development checks cross-compile the Windows app and test fixtures from Linux with the .NET 10 SDK. The Windows verification workflow separately executes native process control, WMI inventory, UI startup, and shell icon extraction on a Windows x64 runner before a tagged preview is published. See the Actions run and the build report included in the ZIP for the exact execution result.
 
-The implementation passed all 37 core tests and all six native checks in [Windows verification run 41717496483](https://github.com/anishzute/multilauncher/actions/runs/41717496483), including portable packaging and checksum generation.
+The v0.3.0 suite has **52 core tests** and **nine Windows checks**. Development checks verify cancellation, abandoned-session recovery, and persistent JSON before the native Windows workflow runs.
+
+All 52 core tests, all nine Windows checks, and portable packaging passed in [Windows verification run 42125256279](https://github.com/anishzute/multilauncher/actions/runs/42125256279).
 
 ## Executed checks
 
-The platform-independent suite now has **37 tests**. The original 20 scenarios exercise:
+The platform-independent suite has **52 tests**. The original 20 scenarios exercise:
 
 1. Full start/end flow, preserving already-running tools and original launch arguments.
 2. Reused process IDs.
@@ -31,6 +33,8 @@ The platform-independent suite now has **37 tests**. The original 20 scenarios e
 
 Seventeen further scenarios cover hiding to the tray, windowless processes, graceful-only mode, normal exit, already-exited processes, denied/ineffective termination, old-profile migration, complete exit in both session directions, bundled and external children, exited bootstrappers, reused parent PIDs, delayed launches, unidentified-launch resolution, failed launches followed by manual instances, and false close-success reports.
 
+Fifteen new scenarios cover resetting a failed restore without process actions; starting a new profile after reset; cancellation during inventory, an issued close, and a long launch delay; stopping and resuming; terminal reset records; archive failure; preserving profiles and order through reset and app-folder replacement; missing, damaged, and legacy backup recovery; refusing to overwrite unrecoverable profiles with starters; intentionally empty profile lists; and a failed backup destination that must not prevent primary JSON persistence.
+
 ## Native Windows verification
 
 The workflow uses isolated disposable apps to check:
@@ -41,6 +45,9 @@ The workflow uses isolated disposable apps to check:
 4. Real windowless background-process termination and verification.
 5. Full session flow: close a background fixture, start a tray fixture, exit it, and restore the original background app.
 6. Bundled child cleanup while preserving a child outside the installation folder.
+7. A failed-restore window exposes Reset and Exit; Keep session & exit closes the actual UI without retrying or discarding profiles.
+8. A real failed restore is reset without changing processes, and its profiles persist when the app reopens.
+9. The latest profile JSON is recovered from backup on Windows after the main file is removed.
 
 The fixtures live in a temporary directory and never target installed user apps. The workflow builds the portable app, includes its Windows x64 runtime and dependency notices, and creates checksummed artifacts. A release is created only after verification succeeds.
 
@@ -48,7 +55,9 @@ Trading Paints, iRacing UI, and Plex themselves are not installed on the runner.
 
 ## Recommended first Windows check
 
-Exit the previous Pitstop before replacing it. If the old version cannot finish restoring, exit from its tray menu and choose No to keep the saved session; use Retry restore after opening v0.2.0. Profiles remain in LocalAppData. Use two ordinary disposable apps with no unsaved work for a first check:
+Exit the previous Pitstop before replacing it. If the old version cannot finish restoring, exit from its tray menu and choose No to keep the saved session; open v0.3.0 and choose Reset session or Retry restore. Profiles remain in LocalAppData. Use two ordinary disposable apps with no unsaved work for a first check:
+
+In v0.3.0 you can use Reset session instead of retrying. Reset leaves apps as they are and keeps profiles. Exit offers explicit keep/reset choices. Check Settings for the exact profiles.json path and automatic backup path before updating or switching Windows accounts.
 
 1. Open app A; leave app B closed.
 2. Create a test profile with A in the Close list and B in the Open list. Use Exit completely, the new default.

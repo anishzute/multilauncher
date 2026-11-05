@@ -4,9 +4,19 @@ A small native Windows app for switching between desktop setups. Keep a profile 
 
 ## Download
 
-[Download Pitstop v0.2.0 for Windows x64](https://github.com/anishzute/multilauncher/releases/download/v0.2.0/Pitstop-Windows-x64.zip).
+[Download Pitstop v0.3.0 for Windows x64](https://github.com/anishzute/multilauncher/releases/download/v0.3.0/Pitstop-Windows-x64.zip).
 
-The [releases page](https://github.com/anishzute/multilauncher/releases) contains the portable build, source archive, and SHA-256 checksums. The original [v0.1.0 build folder](builds/v0.1.0) is retained for reference. The Windows verification workflow runs 37 core regression tests and six native checks before publishing tagged preview releases.
+The [releases page](https://github.com/anishzute/multilauncher/releases) contains the portable build, source archive, and SHA-256 checksums. The original [v0.1.0 build folder](builds/v0.1.0) is retained for reference. The Windows verification workflow runs 52 core regression tests and nine native checks before publishing tagged preview releases.
+
+## New in v0.3.0
+
+**Reset session** abandons a failed restore without retrying it. During an operation, the button reads **Stop & reset**: pending steps are canceled, an already-issued app action is allowed to finish, and the session record is archived as abandoned. Apps are left as they are, profiles are kept, and you can edit or start another profile immediately. Reset is available in the session banner and tray menu.
+
+The visible **Exit** button and tray Exit action offer **Keep session & exit** or **Reset & exit**. Neither choice retries restore. Keep preserves the record for a later restore; reset archives it and exits. Exit remains available while an operation is stopping.
+
+Profiles auto-save to the fixed JSON file `%LocalAppData%\Pitstop\profiles.json`, outside the app folder. Settings shows the full path and offers Open profiles.json, Back up profiles, and Import backup. Replacing or moving the executable does not replace your profiles under the same Windows account.
+
+Each successful profile save also updates `profiles.backup.json`; previous `.bak` copies are retained. If the main file is missing or damaged, Pitstop recovers a valid backup before creating any starter profiles. Damaged files are preserved for reference. Moving to a different Windows account requires exporting/importing the JSON backup.
 
 ## New in v0.2.0
 
@@ -51,7 +61,7 @@ Create, rename, duplicate, or delete profiles. Duplicating a configured profile 
 - Bundled helpers are included by default, restricted to the selected app’s process family and installation folder. Unrelated programs outside that folder and pre-session apps are preserved.
 - Session activity shows PIDs and actual exit results. Access-denied messages explain when Pitstop may need to be restarted as administrator.
 - Delayed launcher processes can be recovered when ending a session. If an app cannot be identified, the session remains saved and offers manual cleanup confirmation instead of reporting false success.
-- If a close or restore cannot finish, the record stays on disk. Resolve the item in Session activity and use **Retry restore**. Finished restore steps are not repeated.
+- If a close or restore cannot finish, the record stays on disk. You can Retry restore, Reset session without retrying, or Exit while keeping the record. Finished restore steps are not repeated.
 - Closing Pitstop during a session minimizes it to the system tray. The tray menu can reopen Pitstop, end the session, or quit while keeping the saved session for later.
 - The app allows one active session at a time. Profiles are locked while that session is active.
 
@@ -77,12 +87,13 @@ All data is under `%LocalAppData%\Pitstop`:
 
 | File | Purpose |
 | --- | --- |
-| `profiles.json` | Your profiles and app settings |
+| `profiles.json` | Your profiles and app settings, saved outside the app folder |
+| `profiles.backup.json` | Automatic recovery copy of the latest saved profiles |
 | `active-session.json` | Current session and unfinished restore steps |
 | `history\*.json` | Completed session records and action logs |
 | `*.bak` | Previous version of a replaced data file |
 
-Writes use a flushed temporary file and atomic replacement. A damaged JSON file is preserved and reported; it is not silently replaced with a fresh session. If necessary, close Pitstop, preserve the damaged file, and review its `.bak` copy. Do not delete a session record while you still need its restore information.
+Writes use a flushed temporary file and atomic replacement. Missing or damaged profiles are recovered from a valid backup when possible, with the damaged original preserved. If all copies are unreadable, they are not overwritten by starter profiles. Active-session JSON is kept separate from profile JSON: resetting a session never deletes profiles or their backups. Abandoned sessions stay in history for reference, without being resumed on the next launch.
 
 Settings & help offers profile export/import and a button to open the data folder. Import adds profiles rather than replacing yours. Review paths and close behavior after import. Session records may include the command-line arguments of apps selected for closing; treat these local files as private. Pitstop has no network client, cloud account, or telemetry. History can be removed from the data folder when you no longer need it.
 
