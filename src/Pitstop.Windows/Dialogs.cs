@@ -22,7 +22,7 @@ public sealed class SessionExitDialog : Window
     public SessionExitChoice Choice { get; private set; }
     public SessionExitDialog(Window owner)
     {
-        Owner = owner; Title = "Exit Pitstop"; Width = 600; Height = 250;
+        Owner = owner; Title = "Exit Loadout"; Width = 600; Height = 250;
         ResizeMode = ResizeMode.NoResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Ui.DarkTitleBar(this);
         var panel = new StackPanel { Margin = new Thickness(24) }; Content = panel;
@@ -66,7 +66,7 @@ public static class Ui
     }
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
-    public static void Error(Window owner, Exception ex) => MessageBox.Show(owner, ex.Message, "Pitstop", MessageBoxButton.OK, MessageBoxImage.Information);
+    public static void Error(Window owner, Exception ex) => MessageBox.Show(owner, ex.Message, "Loadout", MessageBoxButton.OK, MessageBoxImage.Information);
 }
 
 public sealed class ProfileDialog : Window

@@ -22,7 +22,7 @@ public sealed class WindowsProcessHost : IProcessHost
     {
         "System", "Registry", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "svchost", "dwm",
         "explorer", "sihost", "fontdrvhost", "audiodg", "spoolsv", "taskhostw", "conhost", "SecurityHealthService",
-        "MsMpEng", "MsSense", "SearchHost", "StartMenuExperienceHost", "ShellExperienceHost", "Pitstop"
+        "MsMpEng", "MsSense", "SearchHost", "StartMenuExperienceHost", "ShellExperienceHost", "Pitstop", "Loadout"
     };
 
     public Task<IReadOnlyList<ProcessSnapshot>> CaptureAsync() => Task.Run<IReadOnlyList<ProcessSnapshot>>(() =>
@@ -64,7 +64,7 @@ public sealed class WindowsProcessHost : IProcessHost
         var path = Expand(rule.ProcessPath);
         if (!Path.IsPathFullyQualified(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"{rule.Name}: choose the full path to its process .exe.");
-        if (IsProtected(path)) throw new InvalidOperationException($"{rule.Name}: Windows components and Pitstop itself cannot be managed.");
+        if (IsProtected(path)) throw new InvalidOperationException($"{rule.Name}: Windows components and Loadout itself cannot be managed.");
         if (!File.Exists(path)) throw new FileNotFoundException($"{rule.Name}: process executable not found. Edit this app and choose its location.", path);
         rule.ProcessPath = Path.GetFullPath(path);
         if (!forLaunch) return;
@@ -119,7 +119,7 @@ public sealed class WindowsProcessHost : IProcessHost
             return await ProcessExit.CloseAsync(process, force);
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 5)
-        { return new(false, $"Windows denied access to PID {snapshot.Pid}. If this app runs as administrator, restart Pitstop as administrator and retry restore. Services in another Windows session are not managed."); }
+        { return new(false, $"Windows denied access to PID {snapshot.Pid}. If this app runs as administrator, restart Loadout as administrator and retry restore. Services in another Windows session are not managed."); }
         catch (Win32Exception ex) { return new(false, $"Windows error {ex.NativeErrorCode}: {ex.Message}"); }
         catch (InvalidOperationException ex) { return new(false, ex.Message); }
     }

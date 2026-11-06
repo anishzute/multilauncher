@@ -1,8 +1,8 @@
-# Validation for v0.3.0
+# Validation for v0.4.0
 
 Development checks cross-compile the Windows app and test fixtures from Linux with the .NET 10 SDK. The Windows verification workflow separately executes native process control, WMI inventory, UI startup, and shell icon extraction on a Windows x64 runner before a tagged preview is published. See the Actions run and the build report included in the ZIP for the exact execution result.
 
-The v0.3.0 suite has **52 core tests** and **nine Windows checks**. Development checks verify cancellation, abandoned-session recovery, and persistent JSON before the native Windows workflow runs.
+The v0.4.0 suite has **52 core tests** and **nine Windows checks**. Development checks verify cancellation, abandoned-session recovery, and persistent JSON before the native Windows workflow runs.
 
 All 52 core tests, all nine Windows checks, and portable packaging passed in [Windows verification run 42125256279](https://github.com/anishzute/multilauncher/actions/runs/42125256279).
 
@@ -55,7 +55,7 @@ Trading Paints, iRacing UI, and Plex themselves are not installed on the runner.
 
 ## Recommended first Windows check
 
-Exit the previous Pitstop before replacing it. If the old version cannot finish restoring, exit from its tray menu and choose No to keep the saved session; open v0.3.0 and choose Reset session or Retry restore. Profiles remain in LocalAppData. Use two ordinary disposable apps with no unsaved work for a first check:
+Exit the previous Loadout before replacing it. If the old version cannot finish restoring, exit from its tray menu and choose No to keep the saved session; open v0.3.0 and choose Reset session or Retry restore. Profiles remain in LocalAppData. Use two ordinary disposable apps with no unsaved work for a first check:
 
 In v0.3.0 you can use Reset session instead of retrying. Reset leaves apps as they are and keeps profiles. Exit offers explicit keep/reset choices. Check Settings for the exact profiles.json path and automatic backup path before updating or switching Windows accounts.
 
@@ -64,9 +64,9 @@ In v0.3.0 you can use Reset session instead of retrying. Reset leaves apps as th
 3. Start the session. Confirm A exits and B opens.
 4. End the session. Confirm B exits and A reopens.
 5. Open B first and repeat. Confirm B stays open after ending the session.
-6. Start again, close Pitstop to the tray, reopen it, and end the session.
-7. From the tray, exit while keeping the session. Reopen Pitstop and verify the saved restore action.
-8. Drag rows to the top, middle, and bottom of both lists, including a scroll while dragging; reopen Pitstop to confirm persistence. Reorder sidebar profiles too, and verify app rows cannot switch lists.
+6. Start again, close Loadout to the tray, reopen it, and end the session.
+7. From the tray, exit while keeping the session. Reopen Loadout and verify the saved restore action.
+8. Drag rows to the top, middle, and bottom of both lists, including a scroll while dragging; reopen Loadout to confirm persistence. Reorder sidebar profiles too, and verify app rows cannot switch lists.
 9. Confirm app/shortcut icons, app picker, import/export, and layout at your monitor’s scaling.
 
 For Trading Paints, iRacing UI, and Plex, confirm the actual process path using Pick a running app and check Task Manager rather than just the taskbar. Exit completely should remove tray/background processes. Access-denied failures include the PID and permission guidance. Apps already running on the Open list are intentionally preserved and labeled accordingly. Select Graceful only explicitly when you want a refusing app left alive.

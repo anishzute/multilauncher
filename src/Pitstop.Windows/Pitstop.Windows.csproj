@@ -6,11 +6,13 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>disable</ImplicitUsings>
-    <AssemblyName>Pitstop</AssemblyName>
+    <AssemblyName>Loadout</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets/pitstop.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
-    <Company>Pitstop</Company>
+    <ApplicationIcon>Assets/loadout.ico</ApplicationIcon>
+    <Version>0.4.0</Version>
+    <Company>Loadout</Company>
+    <Product>Loadout</Product>
+    <Title>Loadout</Title>
     <Description>One click to your next setup.</Description>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -21,6 +23,6 @@
   <ItemGroup>
     <ProjectReference Include="../Pitstop.Core/Pitstop.Core.csproj" />
     <PackageReference Include="System.Management" Version="10.0.0" />
-    <Resource Include="Assets/pitstop.ico" />
+    <Resource Include="Assets/loadout.ico" />
   </ItemGroup>
 </Project>

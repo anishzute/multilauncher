@@ -38,15 +38,15 @@ public partial class MainWindow : Window
         history = store.ReadHistory();
         InitializeComponent();
         Ui.DarkTitleBar(this);
-        var iconStream = Application.GetResourceStream(new Uri("/Pitstop;component/Assets/pitstop.ico", UriKind.Relative))!;
+        var iconStream = Application.GetResourceStream(new Uri("/Loadout;component/Assets/loadout.ico", UriKind.Relative))!;
         using var stream = iconStream.Stream;
-        tray = new Forms.NotifyIcon { Text = "Pitstop · Your setup, one click away", Icon = new System.Drawing.Icon(stream), Visible = true };
+        tray = new Forms.NotifyIcon { Text = "Loadout · Your setup, one click away", Icon = new System.Drawing.Icon(stream), Visible = true };
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Open Pitstop", null, (_, _) => ShowFromTray());
+        menu.Items.Add("Open Loadout", null, (_, _) => ShowFromTray());
         menu.Items.Add("End session & restore", null, async (_, _) => { ShowFromTray(); await EndSessionAsync(); });
         menu.Items.Add("Stop & reset session", null, async (_, _) => { ShowFromTray(); await ResetSessionAsync(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Exit Pitstop", null, async (_, _) => await ExitFromTrayAsync());
+        menu.Items.Add("Exit Loadout", null, async (_, _) => await ExitFromTrayAsync());
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => ShowFromTray();
         Closed += (_, _) => tray.Dispose();
@@ -126,7 +126,7 @@ public partial class MainWindow : Window
             SessionDetail.Text = session.Activity.LastOrDefault()?.Message ?? "Saved session available to restore.";
             EndButton.Content = session.Status == "Needs attention" ? "↶  Retry restore" : session.Status == "Paused" ? "↶  Resume restore" : "■  End & restore";
             StatusText.Text = session.Activity.LastOrDefault()?.Message ?? "Session record saved.";
-            tray.Text = "Pitstop · " + session.ProfileName[..Math.Min(session.ProfileName.Length, 40)];
+            tray.Text = "Loadout · " + session.ProfileName[..Math.Min(session.ProfileName.Length, 40)];
             if (resetting) SessionDetail.Text = "Stopping remaining steps. Waiting for any already-issued app action, then resetting the session.";
         }
         var entries = (session?.Activity.AsEnumerable().Reverse() ?? []).Concat(history).Take(1000).ToList();
@@ -215,7 +215,7 @@ public partial class MainWindow : Window
     private async void ConfirmUntracked_Click(object sender, RoutedEventArgs e)
     {
         if (busy || resetting || engine.Current is null) return;
-        if (MessageBox.Show(this, "Confirm that you have exited any apps marked as unidentified in this session. Pitstop will then finish restoring your previous apps.",
+        if (MessageBox.Show(this, "Confirm that you have exited any apps marked as unidentified in this session. Loadout will then finish restoring your previous apps.",
             "Finish manual cleanup", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
         busy = true; RefreshSession();
         try { await engine.ConfirmUntrackedAppsClosedAsync(); history = store.ReadHistory(); }
@@ -232,7 +232,7 @@ public partial class MainWindow : Window
             await engine.EndAsync();
             if (quitting || generation != resetGeneration) return;
             history = store.ReadHistory();
-            if (engine.Current is null) { StatusText.Text = "Session finished. Your previous apps are back."; tray.Text = "Pitstop · Ready when you are"; }
+            if (engine.Current is null) { StatusText.Text = "Session finished. Your previous apps are back."; tray.Text = "Loadout · Ready when you are"; }
             else ShowPage("activity");
         }
         catch (Exception ex) { if (!quitting && generation == resetGeneration) Ui.Error(this, ex); }
@@ -258,7 +258,7 @@ public partial class MainWindow : Window
     private void SettingsNav_Click(object sender, RoutedEventArgs e) { RefreshStorage(); ShowPage("settings"); }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { FileName = "Pitstop-profiles.json", Filter = "JSON profiles (*.json)|*.json" };
+        var dialog = new SaveFileDialog { FileName = "Loadout-profiles.json", Filter = "JSON profiles (*.json)|*.json" };
         if (dialog.ShowDialog(this) == true)
         {
             try { File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(profiles, FileStore.Json)); StatusText.Text = "Profiles exported."; }
@@ -267,7 +267,7 @@ public partial class MainWindow : Window
     }
     private void Import_Click(object sender, RoutedEventArgs e)
     {
-        if (busy || engine.Current is not null) { MessageBox.Show(this, "End the current session before importing profiles.", "Pitstop"); return; }
+        if (busy || engine.Current is not null) { MessageBox.Show(this, "End the current session before importing profiles.", "Loadout"); return; }
         var dialog = new OpenFileDialog { Filter = "JSON profiles (*.json)|*.json" };
         if (dialog.ShowDialog(this) != true) return;
         try
@@ -276,7 +276,7 @@ public partial class MainWindow : Window
             var imported = FileStore.Read<List<Profile>>(dialog.FileName);
             if (imported.Count > 100 || imported.Any(p => p is null || string.IsNullOrWhiteSpace(p.Name) || p.OpenApps is null || p.CloseApps is null
                 || p.OpenApps.Count + p.CloseApps.Count > 200 || p.OpenApps.Concat(p.CloseApps).Any(a => a is null || string.IsNullOrWhiteSpace(a.Name))))
-                throw new InvalidDataException("This file does not contain valid Pitstop profiles.");
+                throw new InvalidDataException("This file does not contain valid Loadout profiles.");
             foreach (var p in imported)
             {
                 p.Id = Guid.NewGuid().ToString("N");
@@ -292,7 +292,7 @@ public partial class MainWindow : Window
     {
         ProfilesFilePath.Text = store.ProfilesPath;
         ProfilesBackupPath.Text = store.ProfilesBackupPath;
-        StorageNotice.Text = store.ProfileStorageNotice ?? "Profiles save automatically outside the app folder. Replacing or moving Pitstop.exe does not replace your profiles. Use the same Windows account, or import an exported backup on another account.";
+        StorageNotice.Text = store.ProfileStorageNotice ?? "Profiles save automatically outside the app folder. Replacing or moving Loadout.exe does not replace your profiles. Use the same Windows account, or import an exported backup on another account.";
     }
     private void ProfilesFile_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo(store.ProfilesPath) { UseShellExecute = true });
     private async void ResetSession_Click(object sender, RoutedEventArgs e) => await ResetSessionAsync();
@@ -310,7 +310,7 @@ public partial class MainWindow : Window
             if (quitting) return true;
             history = store.ReadHistory();
             StatusText.Text = "Session reset. Profiles kept; apps left as they are.";
-            tray.Text = "Pitstop · Ready when you are";
+            tray.Text = "Loadout · Ready when you are";
             return true;
         }
         catch (Exception ex) { Ui.Error(this, ex); return false; }
@@ -322,7 +322,7 @@ public partial class MainWindow : Window
     {
         if (quitting || (!busy && !resetting && engine.Current is null)) return;
         e.Cancel = true; Hide();
-        tray.ShowBalloonTip(2500, "Pitstop is in the system tray", "Your session is still saved. Open Pitstop from the tray to end and restore.", Forms.ToolTipIcon.Info);
+        tray.ShowBalloonTip(2500, "Loadout is in the system tray", "Your session is still saved. Open Loadout from the tray to end and restore.", Forms.ToolTipIcon.Info);
     }
     private async Task ExitFromTrayAsync()
     {

@@ -1,9 +1,7 @@
-Failed restores now have a clear escape: **Reset session** abandons pending restore steps, archives the record, and unlocks profiles without retrying or changing additional apps. During an operation, **Stop & reset** cancels the remaining steps and waits for any already-issued app action before resetting. Apps are left as they are; profiles are kept.
+Pitstop is now **Loadout**. The window, sidebar, tray menus, dialogs, executable metadata, and downloads use the new name, with an L app icon.
 
-A visible **Exit** button and the tray menu offer **Keep session & exit** or **Reset & exit**. Neither choice retries restore, and exit remains available during an operation.
+Existing profiles, backups, and saved sessions load automatically. Data stays in `%LocalAppData%\Pitstop` for compatibility, and the shared single-instance lock prevents old and new versions from running together.
 
-Profiles auto-save to `%LocalAppData%\Pitstop\profiles.json`, outside the application folder. Settings shows the exact path and offers Open profiles.json, Back up profiles, and Import backup. The latest saved profiles also have an automatic `profiles.backup.json` recovery copy. Missing or damaged files recover from valid backups; damaged originals are preserved. App updates, session resets, and changing the executable folder do not replace profile JSON under the same Windows account.
+Download **Loadout-Windows-x64.zip**, extract it, and run **Loadout.exe**. Exit the old version first. No profile migration or import is needed.
 
-Verification covers **52 regression tests** and **nine native Windows checks**, including failed-restore exit UI, reset without process changes, and JSON recovery after reopening the app.
-
-Download **Pitstop-Windows-x64.zip**, extract it, and run **Pitstop.exe**. Exit the older Pitstop from its tray menu before replacing it. If v0.2 cannot finish a session, choose **No** when asked to restore on exit to keep its record, then open v0.3 and choose **Reset session** or **Retry restore**. Existing profiles load automatically.
+The release workflow runs all 52 core regression tests and nine native Windows checks before publishing.

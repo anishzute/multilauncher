@@ -25,7 +25,7 @@ internal static class Program
         {
             // This runs before the first await, on the entry thread's STA.
             var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            application.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Pitstop;component/Theme.xaml", UriKind.Relative) });
+            application.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/Loadout;component/Theme.xaml", UriKind.Relative) });
             var uiStore = new FileStore(Path.Combine(root, "ui-data"));
             var fixturePath = Path.Combine(worker, "Pitstop.TestWorker.exe");
             uiStore.SaveProfiles([new Profile { Name = "UI verification", OpenApps = [new AppRule { Name = "Icon and row template", LaunchTarget = fixturePath, ProcessPath = fixturePath }] }]);
